@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><title>Keystone</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{--ink:#090708;--paper:#EFEDEF;--volt:#6945FE;--blaze:#FD5A13;--lime:#CBE13B;--stone:#574C4E}
+*{box-sizing:border-box}body{margin:0;font:500 16px/1.5 'Instrument Sans',system-ui,sans-serif;background:var(--paper);color:var(--ink)}
+.band{padding:8vh 6vw}.hero{background:var(--volt);color:#fff}
+h1,h2{font:900 clamp(48px,11vw,120px)/.85 'Archivo',Impact,sans-serif;font-stretch:62%;text-transform:uppercase;margin:0 0 16px}h2{font-size:clamp(36px,7vw,64px)}
+i{font-style:italic;color:var(--lime)}
+.btn{display:inline-block;border:0;border-radius:999px;background:var(--ink);color:var(--paper);padding:12px 24px;font:600 15px 'Instrument Sans',sans-serif;cursor:pointer;text-decoration:none}
+.btn.l{background:var(--lime);color:var(--ink)}.btn.g{background:none;border:1px solid var(--ink);color:var(--ink)}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px;margin-top:20px}
+.card{background:#fff;border:1px solid rgba(9,7,8,.1);border-radius:14px;padding:22px}.card b{font-size:20px}.price{font:900 56px/1 'Archivo',Impact,sans-serif;font-stretch:62%}
+input{width:100%;border:1px solid rgba(9,7,8,.15);border-radius:10px;padding:12px;font:inherit;margin:4px 0 12px}input:focus{outline:2px solid var(--volt)}
+label{font-size:13px;font-weight:600;color:var(--stone)}.sec{display:none}.sec.on{display:block}
+#msg{color:#b00020;min-height:22px}.row{display:flex;gap:8px;flex-wrap:wrap}
+</style></head><body>
+<div class="band hero"><h1>Key<i>stone</i></h1><p style="font-size:20px;max-width:560px">Build a finished website for any business in minutes. Find the businesses that need one. Sell it the same day.</p><a class="btn l" href="#plans">See plans</a> <a class="btn" style="background:#fff;color:var(--ink)" href="#login" onclick="show('login')">Sign in</a></div>
+<div class="band sec on" id="plans"><h2>Plans</h2><div class="grid" id="grid"></div></div>
+<div class="band sec" id="login"><h2 id="ltitle">Sign in</h2><div class="card" style="max-width:420px">
+<div id="nameRow" style="display:none"><label for="n">Name</label><input id="n" autocomplete="name"></div>
+<label for="e">Email</label><input id="e" type="email" autocomplete="email"><label for="p">Password (10+ characters)</label><input id="p" type="password" autocomplete="current-password" onkeydown="if(event.key=='Enter')go()">
+<div id="msg" role="alert"></div><div class="row"><button class="btn" onclick="go()" id="gobtn">Sign in</button><button class="btn g" onclick="toggle()" id="tbtn">Create account</button></div></div></div>
+<div class="band sec" id="account"><h2>Account</h2><div class="card" style="max-width:520px"><p id="st">Loading...</p><div class="row" id="acts"></div></div></div>
+<script>
+const $=s=>document.querySelector(s);
+const PLANS=[['basic','Basic',20,'Studio, Leads, Pipeline and Listings'],['pro','Pro',50,'Everything in Basic, plus priority email support'],['proplus','Pro+',100,'Everything in Pro, plus a 1:1 setup call']];
+$('#grid').innerHTML=PLANS.map(p=>`<div class="card"><b>${p[1]}</b><div class="price">$${p[2]}<span style="font-size:18px">/mo</span></div><p>${p[3]}</p><button class="btn" onclick="pick('${p[0]}')">Choose ${p[1]}</button></div>`).join('');
+let signup=false;
+function show(id){document.querySelectorAll('.sec').forEach(e=>e.classList.toggle('on',e.id==id));if(id=='account')acct();scrollTo(0,0)}
+function route(){const h=location.hash.slice(1);show(['login','account'].includes(h)?h:'plans')}addEventListener('hashchange',route);route();
+async function api(path,body){const r=await fetch(path,{method:body?'POST':'GET',headers:{'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined});return{ok:r.ok,status:r.status,data:await r.json().catch(()=>({}))}}
+function toggle(){signup=!signup;$('#nameRow').style.display=signup?'block':'none';$('#ltitle').textContent=signup?'Create account':'Sign in';$('#gobtn').textContent=signup?'Create account':'Sign in';$('#tbtn').textContent=signup?'I have an account':'Create account';$('#msg').textContent=''}
+function want(p){try{if(p)sessionStorage.setItem('plan',p);return sessionStorage.getItem('plan')}catch(e){return p}}
+async function pick(p){want(p);const s=await api('/api/billing/status');if(s.ok)return checkout(p);location.hash='login';show('login')}
+async function checkout(p){const r=await api('/api/billing/checkout',{plan:p});if(r.ok&&r.data.url){try{sessionStorage.removeItem('plan')}catch(e){}location.href=r.data.url}else{location.hash='account';show('account')}}
+async function go(){$('#msg').textContent='';const email=$('#e').value.trim(),password=$('#p').value;
+ const r=signup?await api('/api/auth/sign-up/email',{name:$('#n').value.trim()||email,email,password}):await api('/api/auth/sign-in/email',{email,password});
+ if(!r.ok){$('#msg').textContent=r.data.message||'That did not work. Check your details and try again.';return}
+ const p=want();if(p)return checkout(p);location.hash='account';show('account')}
+async function acct(){const s=await api('/api/billing/status');
+ if(!s.ok){$('#st').textContent='You are not signed in.';$('#acts').innerHTML='<button class="btn" onclick="location.hash=\'login\';show(\'login\')">Sign in</button>';return}
+ const d=s.data;$('#st').textContent=d.isAdmin?'Owner account. Full access.':d.active?'Your subscription is active.':'No active subscription yet.';
+ $('#acts').innerHTML=(d.active?'<a class="btn l" href="/app">Open Keystone</a>':PLANS.map(p=>`<button class="btn" onclick="pick('${p[0]}')">${p[1]} $${p[2]}/mo</button>`).join(''))+(d.status!='none'&&!d.isAdmin?'<button class="btn g" onclick="portal()">Manage billing</button>':'')+'<button class="btn g" onclick="out()">Sign out</button>'}
+async function portal(){const r=await api('/api/billing/portal',{});if(r.ok&&r.data.url)location.href=r.data.url}
+async function out(){await api('/api/auth/sign-out',{});location.hash='';show('plans')}
+</script></body></html>
