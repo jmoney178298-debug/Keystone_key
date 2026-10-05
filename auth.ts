@@ -18,5 +18,6 @@ export const auth = betterAuth({
   baseURL: process.env.APP_URL,
   secret: authSecret(),
   trustedOrigins: process.env.APP_URL ? [process.env.APP_URL] : [],
+  advanced: { ipAddress: { ipAddressHeaders: ["x-forwarded-for"] } },
   emailAndPassword: { enabled: true, minPasswordLength: 10 },
 });
