@@ -9,7 +9,7 @@ import { and, desc, eq, sql } from "drizzle-orm";
 import Stripe from "stripe";
 import { db } from "./db";
 import { auth } from "./auth";
-import { hotLeads, leads, prospects, stripeEvents, subscriptions } from "./schema";
+import { aiUsage, hotLeads, leads, prospects, stripeEvents, subscriptions } from "./schema";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
 const OWNER_EMAIL = (process.env.OWNER_EMAIL ?? "").trim().toLowerCase();
@@ -66,12 +66,14 @@ keystone.post("/api/billing/checkout", requireUser, async (c) => {
   const { plan } = await c.req.json().catch(() => ({ plan: "pro" }));
   const price = PRICES[plan as string];
   if (!price) return c.json({ error: "Unknown plan. Use basic, pro or proplus." }, 400);
+  const [prev] = await db.select().from(subscriptions).where(eq(subscriptions.userId, user.id));
+  const trialDays = prev?.stripeSubscriptionId ? 0 : Number(process.env.TRIAL_DAYS ?? 7); // one free trial per account
   const session = await stripe.checkout.sessions.create({
     mode: "subscription",
     customer: await customerFor(user),
     line_items: [{ price, quantity: 1 }],
     client_reference_id: user.id,
-    subscription_data: { metadata: { userId: user.id } },
+    subscription_data: { metadata: { userId: user.id }, ...(trialDays > 0 ? { trial_period_days: trialDays } : {}) },
     allow_promotion_codes: true,
     success_url: `${APP_URL}/app/billing?status=success`,
     cancel_url: `${APP_URL}/app/billing?status=cancelled`,
@@ -219,3 +221,86 @@ admin.patch("/leads/:id", async (c) => {
 });
 
 keystone.route("/api/admin", admin);
+
+
+/* ---------------- AI module (subscribers) ---------------- */
+
+const DAILY_LIMIT: Record<string, number> = { basic: 20, pro: 100, proplus: 300 };
+const AI_MODEL = process.env.AI_MODEL ?? "claude-sonnet-5-5";
+const JSON_ONLY = "Return ONLY valid JSON, no markdown fences, no commentary. ";
+const NO_HYPE = "Do not promise rankings, guaranteed results, lower ad costs, or exclusivity. Keep claims honest and specific. ";
+const SYSTEM: Record<string, string> = {
+  leads: JSON_ONLY + "You find sales leads for a small web design agency. Use web search to find REAL local businesses matching the request that appear to have no website, a dated or broken website, or only a social media page. Use only publicly listed business information. Return a JSON array (max 8) of {\"name\",\"website\",\"city\",\"why\",\"contact\"}. \"why\" must name the specific weakness you observed. Never invent businesses or contact details; use an empty string when unknown.",
+  ads: JSON_ONLY + NO_HYPE + "Write ads for the request. Return {\"google\":{\"headlines\":[3 to 5 strings, max 30 characters each],\"descriptions\":[2 strings, max 90 characters each]},\"facebook\":\"\",\"instagram\":\"\",\"linkedin\":\"\",\"email\":{\"subject\":\"\",\"body\":\"\"}}.",
+  video: JSON_ONLY + NO_HYPE + "Plan a 15 to 45 second vertical video ad. You write the plan; you cannot render video. Return {\"title\",\"hook\",\"shots\":[{\"scene\",\"visual\",\"voiceover\",\"seconds\"}],\"captions\",\"cta\"}.",
+  design: JSON_ONLY + "You restyle a small business website. The context holds the current brief. Return {\"primary\":\"#rrggbb\",\"ink\":\"#rrggbb\",\"surface\":\"#rrggbb\",\"tagline\":\"\",\"services\":\"comma separated list or empty string\",\"note\":\"one sentence on what changed\"}. Use ink as a dark text/nav color, surface as a light page background, and a primary that keeps white text readable.",
+  coach: NO_HYPE + "You are the personal business assistant for the owner of AIU, a small business that sells AI-built websites, ads and leads tools, subscriptions, and white-label copies. Give short, concrete, step-by-step help and a realistic daily plan to earn money. Use the owner's numbers in the context. The app has these tabs: AI, Studio (build sites), Leads (find and score businesses), Pipeline (prospects and cold email sequences), Listings (ad copy), Publish (put client sites live), Revenue, Earn (payment links), Admin (subscribers and demo requests), Settings. Point to the right tab for each step. Never promise income or results. Remind the owner to follow email and advertising laws and to verify leads before contacting them. Keep answers under 250 words unless asked for more.",
+  write: NO_HYPE + "You write clear, friendly website and marketing copy for small businesses. Reply with the copy only.",
+};
+
+keystone.post("/api/ai", requireUser, requireSub, async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  const mode = String(body.mode ?? "");
+  const prompt = String(body.prompt ?? "").trim().slice(0, 1500);
+  const context = String(body.context ?? "").slice(0, 3000);
+  const history: { role: "user" | "assistant"; content: string }[] =
+    mode === "coach" && Array.isArray(body.history)
+      ? body.history.filter((m: any) => (m?.role === "user" || m?.role === "assistant") && typeof m.content === "string")
+          .slice(-8).map((m: any) => ({ role: m.role, content: m.content.slice(0, 1500) }))
+      : [];
+  while (history.length && history[0].role === "assistant") history.shift();
+  if (!SYSTEM[mode] || !prompt) return c.json({ error: "Pick a mode and enter a prompt." }, 400);
+  if (!process.env.ANTHROPIC_API_KEY) return c.json({ error: "AI is not configured yet. The owner must add ANTHROPIC_API_KEY." }, 503);
+
+  const user = c.get("user");
+  if (!c.get("isAdmin")) {
+    const [s] = await db.select().from(subscriptions).where(eq(subscriptions.userId, user.id));
+    const limit = DAILY_LIMIT[s?.plan ?? "basic"] ?? 20;
+    const day = new Date().toISOString().slice(0, 10);
+    const [u] = await db.select().from(aiUsage).where(and(eq(aiUsage.userId, user.id), eq(aiUsage.day, day)));
+    if ((u?.n ?? 0) >= limit) return c.json({ error: `Daily AI limit reached (${limit}). It resets tomorrow, or upgrade your plan.` }, 429);
+    await db.insert(aiUsage).values({ userId: user.id, day, n: 1 })
+      .onConflictDoUpdate({ target: [aiUsage.userId, aiUsage.day], set: { n: sql`${aiUsage.n} + 1` } });
+  }
+
+  try {
+    const r = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: { "x-api-key": process.env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+      body: JSON.stringify({
+        model: AI_MODEL,
+        max_tokens: 2500,
+        system: SYSTEM[mode],
+        messages: [...history, { role: "user", content: context ? `Context:\n${context}\n\nRequest:\n${prompt}` : prompt }],
+        ...(mode === "leads" ? { tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 4 }] } : {}),
+      }),
+    });
+    if (!r.ok) {
+      console.error("AI error", r.status, (await r.text()).slice(0, 300));
+      return c.json({ error: "The AI service had a problem. Try again in a moment." }, 502);
+    }
+    const data: any = await r.json();
+    const text = (data.content ?? []).filter((b: any) => b.type === "text").map((b: any) => b.text).join("\n").trim();
+    return c.json({ mode, text });
+  } catch (e) {
+    console.error("AI failure", e);
+    return c.json({ error: "The AI service could not be reached." }, 502);
+  }
+});
+
+
+/* ---------------- public "get a demo" form ---------------- */
+
+const leadHits = new Map<string, number[]>();
+keystone.post("/api/leads", async (c) => {
+  const ip = c.req.header("x-forwarded-for")?.split(",")[0].trim() ?? "unknown";
+  const now = Date.now();
+  const recent = (leadHits.get(ip) ?? []).filter((t) => now - t < 3_600_000);
+  if (recent.length >= 5) return c.json({ error: "Too many requests. Please try again later." }, 429);
+  leadHits.set(ip, [...recent, now]);
+  const b = await c.req.json().catch(() => ({}));
+  const name = clean(b.name, 100), email = clean(b.email, 200), interest = clean(b.interest, 100);
+  if (!name || !email || !/^\S+@\S+\.\S+$/.test(email) || !interest) return c.json({ error: "Name, a valid email and an interest are required." }, 400);
+  await db.insert(leads).values({ name, email, company: clean(b.company, 120), interest, message: clean(b.message, 1000) });
+  return c.json({ ok: true }, 201);
+});
