@@ -41,7 +41,7 @@ h1,h2,.stat,.logo,.price{letter-spacing:-.035em}h1 i,h2 i{font-style:normal;colo
 <nav class="side" id="side"></nav><main id="main"></main>
 <script>
 const $=s=>document.querySelector(s);
-const MODS={ai:['AI','var(--volt)','#6945FE'],studio:['Studio','var(--volt)','#6945FE'],leads:['Leads','var(--blaze)','#FD5A13'],pipeline:['Pipeline','var(--blaze)','#FD5A13'],ads:['Listings','var(--lime)','#CBE13B'],revenue:['Revenue','var(--lime)','#CBE13B'],settings:['Settings','var(--lilac)','#B97AFD']};
+const MODS={ai:['AI','var(--volt)','#6945FE'],studio:['Studio','var(--volt)','#6945FE'],leads:['Leads','var(--blaze)','#FD5A13'],pipeline:['Pipeline','var(--blaze)','#FD5A13'],ads:['Listings','var(--lime)','#CBE13B'],revenue:['Revenue','var(--lime)','#CBE13B'],publish:['Publish','var(--volt)','#4F5BFF'],settings:['Settings','var(--lilac)','#B97AFD']};
 let db={prospects:[],sites:[],set:{agency:'Ltronics PowerHouse',pay:'https://buy.stripe.com/aFa5kCgV0gvq5Qv0rG8k801',sub:'https://buy.stripe.com/dRm00ifQWcfadiXgqE8k803',price:799,mo:39,pass:''}};
 try{const s=localStorage.getItem('keystone');if(s)db=Object.assign(db,JSON.parse(s))}catch(e){}
 const save=()=>{try{localStorage.setItem('keystone',JSON.stringify(db))}catch(e){}};
@@ -86,7 +86,7 @@ ${pages.map(x=>`<div class="pg" id="${x.slug}">${x.sections.map(sec).join('')}</
 
 /* ---------- cold outreach ---------- */
 function emails(p){
-  const a=db.set.agency||'[Your agency]',pay=db.set.pay||'[payment link]',pr=money(p.dealValue||db.set.price),nm=p.contact||'there';
+  const a=db.set.agency||'[Your agency]',pay=db.set.pay||db.set.paySquare||'[payment link]',pr=money(p.dealValue||db.set.price),nm=p.contact||'there';
   return [
    `Subject: A free website idea for ${p.name}\n\nHi ${nm},\n\nI came across ${p.name}${p.city?' in '+p.city:''} and built a quick demo of what a modern site could look like for you. No cost to look: [demo link]\n\nIf you like it, I can have the full site live this week for ${pr}, with hosting set-up included.\n\n${a}`,
    `Subject: Re: A free website idea for ${p.name}\n\nHi ${nm},\n\nJust checking you saw the demo. Happy to change colours, copy or pages to match how you work. Want me to book a 10-minute walkthrough?\n\n${a}`,
@@ -101,8 +101,8 @@ function render(){
   if(db.set.pass&&!window._ok){lock();return}
   const m=MODS[view];$('#side').innerHTML='<div class="logo">AI<i>U</i></div>'+Object.keys(MODS).map(k=>`<button class="nav ${k==view?'on':''}" ${k==view?`style="background:${MODS[k][1]}"`:''} onclick="setView('${k}')">${MODS[k][0]}</button>`).join('');
   $('#main').style.setProperty('--tab',m[1]);
-  $('#main').innerHTML=({ai:vAI,studio:vStudio,leads:vLeads,pipeline:vPipe,ads:vAds,revenue:vRev,settings:vSet})[view]();
-  if(view=='studio'&&cur)paint();
+  $('#main').innerHTML=({coach:vCoach,earn:vEarn,admin:vAdmin,ai:vAI,studio:vStudio,leads:vLeads,pipeline:vPipe,ads:vAds,revenue:vRev,publish:vPublish,settings:vSet})[view]();
+  if(view=='studio'&&cur)paint();if(view=='admin')admLoad();
 }
 function fld(id,l,v,ph,t){return `<div><label for="${id}">${l}</label><input id="${id}" value="${esc(v)}" placeholder="${ph||''}" ${t||''}></div>`}
 function vStudio(){
@@ -120,7 +120,7 @@ function paint(){const P=spec(cur.b);$('#tabs').innerHTML=P.map(p=>`<button clas
   $('#pv').srcdoc=cur.html.replace("(location.hash||'#home')","('#"+(window._pg||'home')+"')")}
 function dl(){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([cur.html],{type:'text/html'}));a.download=(cur.b.name||'site').toLowerCase().replace(/\W+/g,'-')+'.html';a.click()}
 function cp(t){try{navigator.clipboard.writeText(t)}catch(e){}}
-function client(){const pay=db.set.pay||'[add your payment link in Settings]',pr=money(db.set.price);
+function client(){const pay=db.set.pay||db.set.paySquare||'[add your payment link in Settings]',pr=money(db.set.price);
   const t=`Subject: Your new ${cur.b.name} website is ready to review\n\nHi,\n\nYour site is ready. Attached is the full site (open the HTML file in any browser). Once you're happy, pay securely here: ${pay}\nPrice: ${pr}\n\nI'll publish it as soon as payment lands.\n\n${db.set.agency||''}`;
   $('#ce').innerHTML=`<pre>${esc(t)}</pre><button class="btn ghost" onclick="cp(${esc(JSON.stringify(t)).replace(/'/g,'&#39;')})">Copy email</button>`}
 
@@ -154,7 +154,7 @@ function addL(){const g=i=>$('#lb_'+i).value;if(!g('name').trim())return;const s
 function delL(id){db.leads=db.leads.filter(l=>l.id!=id);save();render()}
 function toPipe(id){const l=db.leads.find(x=>x.id==id);db.prospects.unshift({name:l.name,contact:l.contact,email:l.email,city:(window._l||{}).city||'',industry:(window._l||{}).ind||'',dealValue:db.set.price,stage:'new'});db.leads=db.leads.filter(x=>x.id!=id);save();setView('pipeline')}
 
-function ads(){const a=db.set.agency||'[Your agency]',pr=money(db.set.price),mo=db.set.mo?money(db.set.mo)+'/month':'',pay=db.set.pay||'[payment link]',n=window._niche||'local businesses',
+function ads(){const a=db.set.agency||'[Your agency]',pr=money(db.set.price),mo=db.set.mo?money(db.set.mo)+'/month':'',pay=db.set.pay||db.set.paySquare||'[payment link]',n=window._niche||'local businesses',
   plan=mo?` Optional care plan: hosting, edits and support for ${mo}.`:'';
   return [
   ['Facebook post / Marketplace',`Need a website for your ${n} business? ${a} builds a clean, mobile-friendly 4-page site in 48 hours for ${pr}.${plan} Message me for a free demo built with your business name.`],
@@ -194,11 +194,51 @@ function aiLead(i){const l=aiData[i];db.prospects.unshift({name:l.name,contact:l
 function aiApply(){const j=aiData,hx=c=>/^#[0-9a-f]{6}$/i.test(c);if(!cur||!j)return;cur.b.custom=[j.primary,j.ink,j.surface].filter(hx);if(j.services)cur.b.services=String(j.services).slice(0,300);if(j.tagline)cur.b.extra=String(j.tagline).slice(0,300);
  cur.html=renderSite(cur.b,cur.b.theme);save();setView('studio')}
 
+function vPublish(){return `<div class="fade" style="--tab:var(--volt)"><h1>Pub<i>lish</i></h1><p class="sub">Get a client site live in a couple of minutes. No code needed.</p>
+<div class="card"><b>Netlify Drop (fastest)</b><ol style="margin:12px 0 0;padding-left:20px;line-height:1.7"><li>Open the site in Studio and tap <b>Download HTML</b>.</li><li>Go to <a href="https://app.netlify.com/drop" target="_blank" rel="noopener">app.netlify.com/drop</a> and sign in or create a free account first. Sites dropped without an account are deleted after about an hour.</li><li>Drag the .html file onto the page. You get a live link right away.</li><li>Optional: in Netlify's domain settings, add the client's own domain.</li><li>Send the client the live link together with your payment link.</li></ol></div>
+<div class="card"><b>Alternative: Cloudflare Pages</b><p style="margin:8px 0 0">Create a free account at <a href="https://pages.cloudflare.com" target="_blank" rel="noopener">pages.cloudflare.com</a>, create a project, and upload the HTML file. Also free and fast.</p></div>
+<div class="card"><b>Custom domain setup</b><p style="margin:8px 0 0">Pointing the client's own domain at Netlify or Cloudflare makes the site look fully professional. You can charge extra for that setup.</p></div>
+${cur?`<div class="card"><b>Open site: ${esc(cur.b.name)}</b><div class="row" style="margin-top:12px"><button class="btn acc" onclick="dl()">Download HTML now</button></div></div>`:'<div class="card">Generate or open a site in Studio first, then come back here.</div>'}</div>`}
+
+const OFFERS=[['Sell websites to clients',[['Starter website $249','https://buy.stripe.com/fZu6oG206frmgv9cao8k800'],['Professional website $799','https://buy.stripe.com/aFa5kCgV0gvq5Qv0rG8k801'],['Business website $1,999','https://buy.stripe.com/00w14m6gm5QM0wb3DS8k802'],['Website care plan $39/mo','https://buy.stripe.com/dRm00ifQWcfadiXgqE8k803']],'Build the site in Studio, send the payment link, then publish it. Add the care plan for recurring income.'],
+['Sell the whole system (white-label)',[['White-label setup $997','https://buy.stripe.com/9B6aEWbAG7YUbaPeiw8k808'],['Hosting and updates $99/mo','https://buy.stripe.com/fZudR834a3IE3In8Yc8k809']],'You deliver a separate copy with the buyer\'s own name, Stripe and hosting. Only sell this if you will do the setup and support.']];
+function vEarn(){return `<div class="fade" style="--tab:var(--lime)"><h1>Ways to <i>earn</i></h1><p class="sub">Your payment links, ready to copy.</p>
+<div class="card"><b>Sell subscriptions</b><p style="margin:6px 0 10px">Share your sign-up page. People get a 7-day free trial, then pay monthly. You never pay and never see a paywall: your owner login is free.</p><button class="btn acc" style="--c:var(--lime);color:var(--ink)" onclick="cp(location.origin)">Copy sign-up link</button></div>
+${OFFERS.map(o=>`<div class="card"><b>${o[0]}</b><p style="margin:6px 0 10px;color:var(--stone)">${o[2]}</p>${o[1].map(l=>`<div class="row" style="padding:6px 0"><span style="flex:1">${l[0]}</span><button class="btn ghost" onclick="cp('${l[1]}')">Copy link</button></div>`).join('')}</div>`).join('')}</div>`}
+function vAdmin(){return `<div class="fade" style="--tab:var(--lilac)"><h1>Ad<i>min</i></h1><p class="sub">Subscribers, leads and revenue.</p><div id="adm"><div class="card">Loading...</div></div></div>`}
+async function admLoad(){const g=async p=>{const r=await fetch(p);if(!r.ok)throw 0;return r.json()};
+ try{const [o,subs,ls]=await Promise.all([g('/api/admin/overview'),g('/api/admin/subscribers'),g('/api/admin/leads')]);
+ const c=s=>(o.subscribers.find(x=>x.status==s)||{n:0}).n;
+ $('#adm').innerHTML=`<div class="grid"><div class="card"><label>Trialing</label><div class="stat mono">${c('trialing')}</div></div><div class="card"><label>Paying</label><div class="stat mono">${c('active')}</div></div><div class="card"><label>Hot leads saved</label><div class="stat mono">${o.hotLeads}</div></div><div class="card"><label>New demo requests</label><div class="stat mono">${o.newInboundLeads}</div></div><div class="card"><label>Won deals</label><div class="stat mono">${money(o.wonRevenue)}</div></div></div>
+ <div class="card"><b>Demo requests</b>${ls.map(l=>`<div style="padding:8px 0;border-top:1px solid rgba(11,15,26,.08)"><b>${esc(l.name)}</b> <span class="pill">${esc(l.status)}</span><div style="color:var(--stone)">${esc(l.email)} ${esc(l.company)} ${esc(l.message)}</div><div class="row" style="margin-top:6px">${['contacted','won','lost'].map(s=>`<button class="btn ghost" onclick="admSet(${l.id},'${s}')">${s}</button>`).join('')}</div></div>`).join('')||'<p>None yet.</p>'}</div>
+ <div class="card"><b>Subscribers</b>${subs.map(s=>`<div class="row" style="padding:6px 0;border-top:1px solid rgba(11,15,26,.08)"><span class="mono" style="flex:1;font-size:12px">${esc(s.userId.slice(0,8))}</span><span class="pill">${esc(s.plan)}</span><span class="pill">${esc(s.status)}</span></div>`).join('')||'<p>No subscribers yet.</p>'}</div>`}
+ catch(e){$('#adm').innerHTML='<div class="card">Owner access only.</div>'}}
+async function admSet(id,status){await fetch('/api/admin/leads/'+id,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({status})});admLoad()}
+
+const TASKS=['Find and score 10 businesses in Leads','Send them to Pipeline and build 3 demo sites','Send the first cold email to 10 prospects','Follow up on yesterday\'s emails','Post 2 ads from Listings','Check Admin for new subscribers and demo requests','Reply to every demo request'];
+const GUIDES=[['Get your first client','Pick one niche and one city. In Leads, find 10 businesses with weak sites and save them. Send them to Pipeline, build a demo in Studio, then send email 1 with your price. Follow up twice before you give up.'],['Publish a client site','Download the HTML in Studio, sign in at app.netlify.com/drop, drag the file in, then send the client the live link with your payment link. The Publish tab has the full steps.'],['Sell a subscription','Send people to your sign-up page from the Earn tab. They get a 7-day trial and are charged when it ends. Do not use old payment links for plans.'],['Send cold email safely','Only contact businesses, use your real name and address, say who you are, and include a clear way to opt out. Stop if someone asks you to.'],['Use the AI module','Pick a mode, describe what you want in plain words, and always check the output before using it. Leads results need verifying.']];
+function chk(){try{return JSON.parse(localStorage.getItem('aiu_chk_'+new Date().toDateString())||'[]')}catch(e){return[]}}
+function chkSet(i,v){const c=chk();c[i]=v;try{localStorage.setItem('aiu_chk_'+new Date().toDateString(),JSON.stringify(c))}catch(e){}}
+function chat(){try{return JSON.parse(localStorage.getItem('aiu_chat')||'[]')}catch(e){return[]}}
+function chatSave(m){try{localStorage.setItem('aiu_chat',JSON.stringify(m.slice(-20)))}catch(e){}}
+function vCoach(){const c=chk(),m=chat();return `<div class="fade" style="--tab:var(--volt)"><h1>My <i>assistant</i></h1><p class="sub">Your daily plan and a coach that knows your numbers.</p>
+<div class="card"><b>Today's checklist</b>${TASKS.map((t,i)=>`<label style="display:flex;gap:10px;align-items:center;margin:10px 0 0;font-size:15px;color:var(--ink)"><input type="checkbox" style="width:auto" ${c[i]?'checked':''} onchange="chkSet(${i},this.checked)"> ${t}</label>`).join('')}</div>
+<div class="card"><b>Ask your assistant</b><div id="chatlog" style="max-height:340px;overflow:auto;margin:10px 0">${m.map(x=>`<div style="margin:8px 0;white-space:pre-wrap;${x.role=='user'?'font-weight:600':'color:var(--stone)'}">${x.role=='user'?'You: ':'Assistant: '}${esc(x.content)}</div>`).join('')||'<p style="color:var(--stone)">Try one of the buttons below.</p>'}</div>
+<div class="row" style="margin-bottom:10px">${['Plan my day','How do I get my first client?','Write a follow-up email','What should I do about slow sales?'].map(q=>`<button class="btn ghost" onclick="coachAsk('${q}')">${q}</button>`).join('')}</div>
+<textarea id="co_p" rows="2" placeholder="Ask anything about running the business"></textarea><div class="row" style="margin-top:10px"><button class="btn acc" onclick="coachAsk()">Send</button><button class="btn ghost" onclick="chatSave([]);render()">Clear</button></div></div>
+<div class="card"><b>How-to guides</b>${GUIDES.map(g=>`<details style="margin-top:10px"><summary style="cursor:pointer;font-weight:600">${g[0]}</summary><p style="color:var(--stone)">${g[1]}</p></details>`).join('')}</div></div>`}
+function coachCtx(){const st={};db.prospects.forEach(p=>st[p.stage]=(st[p.stage]||0)+1);return JSON.stringify({today:new Date().toDateString(),prospectsByStage:st,wonRevenue:db.prospects.filter(p=>p.stage=='won').reduce((a,p)=>a+(p.dealValue||0),0),sitesBuilt:db.sites.length,leadsSaved:db.leads.length,defaultSitePrice:db.set.price,tasksDoneToday:chk().filter(Boolean).length+' of '+TASKS.length})}
+async function coachAsk(q){const p=(q||$('#co_p').value).trim();if(!p)return;const m=chat();const hist=m.slice(-8);m.push({role:'user',content:p});chatSave(m);render();
+ const log=$('#chatlog');if(log)log.insertAdjacentHTML('beforeend','<div style="color:var(--stone)">Assistant is thinking...</div>');
+ const r=await fetch('/api/ai',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mode:'coach',prompt:p,context:coachCtx(),history:hist})});
+ const d=await r.json().catch(()=>({}));m.push({role:'assistant',content:r.ok?d.text:(d.error||'Something went wrong. Try again.')});chatSave(m);if(view=='coach')render();const l2=$('#chatlog');if(l2)l2.scrollTop=l2.scrollHeight}
+
 function vRev(){const w=db.prospects.filter(p=>p.stage=='won'),tot=w.reduce((a,p)=>a+p.dealValue,0),open=db.prospects.filter(p=>!['won','lost'].includes(p.stage)).reduce((a,p)=>a+p.dealValue,0);
   return `<div class="fade" style="--tab:var(--lime)"><h1>Reve<i>nue</i></h1><p class="sub">What you have closed and what is still open.</p>
   <div class="grid"><div class="card"><label>Won</label><div class="stat mono">${money(tot)}</div></div><div class="card"><label>Open pipeline</label><div class="stat mono">${money(open)}</div></div><div class="card"><label>Sites built</label><div class="stat mono">${db.sites.length}</div></div></div>
   <div class="card"><b>Today's plan</b><pre>1. Settings: add your Stripe payment link and price.\n2. Pipeline: add 10 local businesses with outdated sites.\n3. Build a demo for each and send email 1.\n4. Follow up with emails 2 and 3 in 2 and 5 days.</pre></div></div>`}
-function vSet(){const s=db.set;return `<div class="fade" style="--tab:var(--lilac)"><h1>Set<i>tings</i></h1><p class="sub">Used in every client and prospect email.</p><div class="card"><div class="grid">${fld('s_agency','Agency name',s.agency)}${fld('s_pay','Stripe payment link',s.pay,'https://buy.stripe.com/...')}${fld('s_price','Default price ($)',s.price,'','type="number"')}${fld('s_mo','Monthly care plan ($/mo)',s.mo,'49','type="number"')}${fld('s_sub','Subscription payment link',s.sub,'https://buy.stripe.com/...')}${fld('s_pass','Admin passcode (optional)',s.pass,'','type="password"')}</div><div class="row" style="margin-top:14px"><button class="btn acc" style="--c:var(--lilac)" onclick="saveSet()">Save settings</button></div></div><p class="sub">Data is stored in this browser only. Download sites to keep them.</p></div>`}
-function saveSet(){db.set={agency:$('#s_agency').value,pay:$('#s_pay').value,price:+$('#s_price').value||1500,mo:+$('#s_mo').value||0,sub:$('#s_sub').value,pass:$('#s_pass').value};save();alert('Settings saved')}
+function vSet(){const s=db.set;return `<div class="fade" style="--tab:var(--lilac)"><h1>Set<i>tings</i></h1><p class="sub">Used in every client and prospect email.</p><div class="card"><div class="grid">${fld('s_agency','Agency name',s.agency)}${fld('s_pay','Stripe payment link',s.pay,'https://buy.stripe.com/...')}${fld('s_square','Square payment link (optional)',s.paySquare,'https://square.link/...')}${fld('s_price','Default price ($)',s.price,'','type="number"')}${fld('s_mo','Monthly care plan ($/mo)',s.mo,'49','type="number"')}${fld('s_sub','Subscription payment link',s.sub,'https://buy.stripe.com/...')}${fld('s_pass','Admin passcode (optional)',s.pass,'','type="password"')}</div><div class="row" style="margin-top:14px"><button class="btn acc" style="--c:var(--lilac)" onclick="saveSet()">Save settings</button></div></div><p class="sub">Data is stored in this browser only. Download sites to keep them.</p></div>`}
+function saveSet(){db.set={agency:$('#s_agency').value,pay:$('#s_pay').value,paySquare:$('#s_square').value,price:+$('#s_price').value||1500,mo:+$('#s_mo').value||0,sub:$('#s_sub').value,pass:$('#s_pass').value};save();alert('Settings saved')}
 render();
+fetch('/api/billing/status').then(r=>r.ok?r.json():null).then(d=>{if(d&&d.isAdmin){MODS.coach=['Assistant','var(--volt)','#4F5BFF'];MODS.earn=['Earn','var(--lime)','#19E6B4'];MODS.admin=['Admin','var(--lilac)','#8B7BFF'];if(!window._seen){window._seen=1;view='coach'}render()}}).catch(()=>{});
 </script></body></html>
