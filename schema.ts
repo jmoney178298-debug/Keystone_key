@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer, primaryKey } from "drizzle-orm/sqlite-core";
 
 const createdAt = () => integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date());
 const updatedAt = () => integer("updated_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date());
@@ -62,3 +62,10 @@ export const leads = sqliteTable("leads", {
   status: text("status").notNull().default("new"),
   createdAt: createdAt(),
 });
+
+/** Daily AI request counter per user (cost control). */
+export const aiUsage = sqliteTable("ai_usage", {
+  userId: text("user_id").notNull(),
+  day: text("day").notNull(),
+  n: integer("n").notNull().default(0),
+}, (t) => [primaryKey({ columns: [t.userId, t.day] })]);
