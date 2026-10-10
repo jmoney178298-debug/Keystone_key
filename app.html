@@ -41,7 +41,7 @@ h1,h2,.stat,.logo,.price{letter-spacing:-.035em}h1 i,h2 i{font-style:normal;colo
 <nav class="side" id="side"></nav><main id="main"></main>
 <script>
 const $=s=>document.querySelector(s);
-const MODS={ai:['AI','var(--volt)','#6945FE'],studio:['Studio','var(--volt)','#6945FE'],leads:['Leads','var(--blaze)','#FD5A13'],pipeline:['Pipeline','var(--blaze)','#FD5A13'],ads:['Listings','var(--lime)','#CBE13B'],revenue:['Revenue','var(--lime)','#CBE13B'],publish:['Publish','var(--volt)','#4F5BFF'],settings:['Settings','var(--lilac)','#B97AFD']};
+const MODS={ai:['AI','var(--volt)','#6945FE'],studio:['Studio','var(--volt)','#6945FE'],leads:['Leads','var(--blaze)','#FD5A13'],pipeline:['Pipeline','var(--blaze)','#FD5A13'],ads:['Listings','var(--lime)','#CBE13B'],funnels:['Funnels','var(--lime)','#19E6B4'],revenue:['Revenue','var(--lime)','#CBE13B'],publish:['Publish','var(--volt)','#4F5BFF'],settings:['Settings','var(--lilac)','#B97AFD']};
 let db={prospects:[],sites:[],set:{agency:'Ltronics PowerHouse',pay:'https://buy.stripe.com/aFa5kCgV0gvq5Qv0rG8k801',sub:'https://buy.stripe.com/dRm00ifQWcfadiXgqE8k803',price:799,mo:39,pass:''}};
 try{const s=localStorage.getItem('keystone');if(s)db=Object.assign(db,JSON.parse(s))}catch(e){}
 const save=()=>{try{localStorage.setItem('keystone',JSON.stringify(db))}catch(e){}};
@@ -101,8 +101,8 @@ function render(){
   if(db.set.pass&&!window._ok){lock();return}
   const m=MODS[view];$('#side').innerHTML='<div class="logo">AI<i>U</i></div>'+Object.keys(MODS).map(k=>`<button class="nav ${k==view?'on':''}" ${k==view?`style="background:${MODS[k][1]}"`:''} onclick="setView('${k}')">${MODS[k][0]}</button>`).join('');
   $('#main').style.setProperty('--tab',m[1]);
-  $('#main').innerHTML=({coach:vCoach,earn:vEarn,admin:vAdmin,ai:vAI,studio:vStudio,leads:vLeads,pipeline:vPipe,ads:vAds,revenue:vRev,publish:vPublish,settings:vSet})[view]();
-  if(view=='studio'&&cur)paint();if(view=='admin')admLoad();
+  $('#main').innerHTML=({coach:vCoach,earn:vEarn,admin:vAdmin,ai:vAI,studio:vStudio,leads:vLeads,pipeline:vPipe,ads:vAds,funnels:vFunnels,revenue:vRev,publish:vPublish,settings:vSet})[view]();
+  if(view=='studio'&&cur)paint();if(view=='admin')admLoad();if(view=='funnels')funLoad();
 }
 function fld(id,l,v,ph,t){return `<div><label for="${id}">${l}</label><input id="${id}" value="${esc(v)}" placeholder="${ph||''}" ${t||''}></div>`}
 function vStudio(){
@@ -171,6 +171,32 @@ function vAds(){const A=ads();return `<div class="fade" style="--tab:var(--lime)
   <div class="card"><div class="grid">${fld('a_niche','Niche you are targeting',window._niche,'roofers')}</div><div class="row" style="margin-top:14px"><button class="btn acc" style="--c:var(--lime);color:var(--ink)" onclick="window._niche=$('#a_niche').value;render()">Update copy</button><button class="btn ghost" onclick="dlAds()">Download all (.txt)</button></div></div>
   ${A.map(x=>`<div class="card"><b>${x[0]}</b><pre>${esc(x[1])}</pre><button class="btn ghost" onclick="cp(${esc(JSON.stringify(x[1])).replace(/'/g,'&#39;')})">Copy</button></div>`).join('')}</div>`}
 function dlAds(){const t=ads().map(x=>x[0].toUpperCase()+'\n'+x[1]).join('\n\n----------\n\n');const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([t],{type:'text/plain'}));a.download='keystone-listings.txt';a.click()}
+
+/* ---------- funnels: AI-built lead capture pages ---------- */
+function vFunnels(){const F=window._f||[],L=window._fl||[];
+  return `<div class="fade" style="--tab:var(--lime)"><h1>Lead <i>funnels</i></h1><p class="sub">Type an industry. The AI builds the whole funnel page. Share the link, run ads to it, and every opt-in lands here as a lead.</p>
+  <div class="card"><div class="grid">${fld('fu_ind','Industry',window._find||'','roofers')}${fld('fu_biz','Business name (optional)',window._fbiz||'','Riverside Roofing')}</div>
+  <div class="row" style="margin-top:14px"><button class="btn acc" style="--c:var(--lime);color:var(--ink)" onclick="genFunnel()">Generate funnel</button></div>
+  <div id="fugen"></div></div>
+  <div class="card"><b>My funnels</b><div id="fulist">${F.map(f=>`<div class="row" style="padding:8px 0;justify-content:space-between"><div><b>${esc(f.title)}</b> <span class="pill" style="background:${f.status=='live'?'var(--lime)':'var(--paper)'}">${f.status}</span><div style="color:var(--stone);font-size:13px">${esc(f.industry)} · <span class="mono">${esc(f.url)}</span></div></div><div class="row"><button class="btn ghost" onclick="cp('${esc(f.url)}')">Copy link</button>${f.status=='live'?`<button class="btn ghost" onclick="pubFunnel(${f.id},'draft')">Unpublish</button>`:`<button class="btn acc" style="--c:var(--lime);color:var(--ink)" onclick="pubFunnel(${f.id},'live')">Publish</button>`}<button class="btn ghost" onclick="delFunnel(${f.id})">Delete</button></div></div>`).join('')||'<div style="color:var(--stone)">No funnels yet. Generate your first one above.</div>'}</div></div>
+  <div class="card"><b>Captured leads <span class="pill">${L.length} available</span></b><p class="sub" style="margin:6px 0 0">Real opt-ins from your funnel pages. Claiming moves a lead to the Pipeline and removes it from this pool.</p>
+  ${L.map(l=>`<div class="row" style="padding:8px 0;justify-content:space-between"><div><b>${esc(l.name)}</b><div style="color:var(--stone);font-size:13px">${esc([l.email,l.phone,[l.city,l.state].filter(Boolean).join(', ')].filter(Boolean).join(' · '))}</div></div><button class="btn acc" style="--c:var(--lime);color:var(--ink)" onclick="claimLead(${l.id})">Claim</button></div>`).join('')||'<div style="color:var(--stone)">No leads yet. Publish a funnel and share its link.</div>'}</div></div>`}
+async function funLoad(){try{
+  const fr=await fetch('/api/funnels');window._f=fr.ok?await fr.json():[];
+  const lr=await fetch('/api/funnel-leads');window._fl=lr.ok?await lr.json():[];
+  if(view=='funnels')render();
+}catch(e){}}
+async function genFunnel(){const ind=$('#fu_ind').value.trim();if(!ind){alert('Enter an industry.');return}
+  window._find=ind;window._fbiz=$('#fu_biz').value.trim();
+  $('#fugen').innerHTML='<div class="card">Building your funnel…</div>';
+  const r=await fetch('/api/funnels/generate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({industry:ind,business:window._fbiz})});
+  const j=await r.json().catch(()=>({}));
+  if(!r.ok){$('#fugen').innerHTML=`<div class="card" style="color:var(--danger,#c00)">Error: ${esc(j.error||'failed')}</div>`;return}
+  $('#fugen').innerHTML=`<div class="card"><b>Funnel ready:</b> ${esc(j.title)}<div class="row" style="margin-top:10px"><button class="btn acc" style="--c:var(--lime);color:var(--ink)" onclick="pubFunnel(${j.id},'live')">Publish now</button><button class="btn ghost" onclick="cp('${esc(j.url)}')">Copy link</button></div><iframe src="${esc(j.url)}" title="Preview" style="margin-top:12px"></iframe></div>`;
+  funLoad()}
+async function pubFunnel(id,status){await fetch('/api/funnels/'+id+'/publish',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({status})});funLoad()}
+async function delFunnel(id){if(!confirm('Delete this funnel and its leads?'))return;await fetch('/api/funnels/'+id,{method:'DELETE'});funLoad()}
+async function claimLead(id){const r=await fetch('/api/funnel-leads/'+id+'/claim',{method:'POST'});if(r.ok){funLoad();alert('Claimed — moved to your Pipeline.')}else{const j=await r.json().catch(()=>({}));alert(j.error||'Claim failed.')}}
 
 
 const AIM={leads:['Find leads','Roofers in Tampa with outdated websites'],ads:['Write ads','Google and Facebook ads for a Tampa roofing company'],video:['Video plan','30-second video ad for a roofing company'],design:['Change design','Make my open site dark blue and gold, more premium'],write:['Write copy','Rewrite the About page so it sounds friendlier']};

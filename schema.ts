@@ -69,3 +69,45 @@ export const aiUsage = sqliteTable("ai_usage", {
   day: text("day").notNull(),
   n: integer("n").notNull().default(0),
 }, (t) => [primaryKey({ columns: [t.userId, t.day] })]);
+
+/** AI-generated lead capture funnels. One row per funnel. */
+export const funnels = sqliteTable("funnels", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  userId: text("user_id").notNull(),
+  /** public URL slug, unique */
+  slug: text("slug").notNull().unique(),
+  industry: text("industry").notNull(),
+  title: text("title").notNull(),
+  /** full generated landing page HTML */
+  html: text("html").notNull(),
+  /** JSON: { google: { headlines[], descriptions[] }, facebook: string } */
+  adAngles: text("ad_angles", { mode: "json" }).$type<Record<string, any>>().notNull().default({}),
+  /** draft | live */
+  status: text("status").notNull().default("draft"),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+});
+
+/** Leads captured through a funnel's public opt-in form. Real opt-ins only. */
+export const funnelLeads = sqliteTable("funnel_leads", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  funnelId: integer("funnel_id").notNull(),
+  /** funnel owner */
+  userId: text("user_id").notNull(),
+  name: text("name").notNull(),
+  email: text("email").notNull(),
+  phone: text("phone"),
+  city: text("city"),
+  state: text("state"),
+  ip: text("ip"),
+  /** new | claimed */
+  status: text("status").notNull().default("new"),
+  createdAt: createdAt(),
+});
+
+/** Lifetime (one-time purchase) access. Stripe is the source of truth. */
+export const lifetimeAccess = sqliteTable("lifetime_access", {
+  userId: text("user_id").primaryKey(),
+  stripeCustomerId: text("stripe_customer_id").notNull(),
+  createdAt: createdAt(),
+});

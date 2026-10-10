@@ -9,7 +9,7 @@ import { and, desc, eq, sql } from "drizzle-orm";
 import Stripe from "stripe";
 import { db } from "./db";
 import { auth } from "./auth";
-import { aiUsage, hotLeads, leads, prospects, stripeEvents, subscriptions } from "./schema";
+import { aiUsage, funnels, funnelLeads, hotLeads, leads, lifetimeAccess, prospects, stripeEvents, subscriptions } from "./schema";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
 const OWNER_EMAIL = (process.env.OWNER_EMAIL ?? "").trim().toLowerCase();
@@ -35,9 +35,11 @@ const requireAdmin: MiddlewareHandler<Env> = async (c, next) => {
   await next();
 };
 
-/** Paywall: owner always passes; everyone else needs an active or trialing subscription. */
+/** Paywall: owner always passes; lifetime buyers pass; everyone else needs an active or trialing subscription. */
 const requireSub: MiddlewareHandler<Env> = async (c, next) => {
   if (c.get("isAdmin")) return next();
+  const [life] = await db.select().from(lifetimeAccess).where(eq(lifetimeAccess.userId, c.get("user").id));
+  if (life) return next();
   const [s] = await db.select().from(subscriptions).where(eq(subscriptions.userId, c.get("user").id));
   if (!s || !["active", "trialing"].includes(s.status)) {
     return c.json({ error: "Active subscription required", upgrade: "/app/billing" }, 402);
@@ -91,13 +93,33 @@ keystone.post("/api/billing/portal", requireUser, async (c) => {
   return c.json({ url: portal.url });
 });
 
+/** One-time purchase: lifetime access. Needs STRIPE_PRICE_LIFETIME in env. */
+keystone.post("/api/billing/lifetime", requireUser, async (c) => {
+  const price = process.env.STRIPE_PRICE_LIFETIME;
+  if (!price) return c.json({ error: "Lifetime purchase is not configured yet." }, 400);
+  const [life] = await db.select().from(lifetimeAccess).where(eq(lifetimeAccess.userId, c.get("user").id));
+  if (life) return c.json({ error: "You already have lifetime access." }, 400);
+  const session = await stripe.checkout.sessions.create({
+    mode: "payment",
+    customer: await customerFor(c.get("user")),
+    line_items: [{ price, quantity: 1 }],
+    client_reference_id: c.get("user").id,
+    success_url: `${APP_URL}/app/billing?status=success`,
+    cancel_url: `${APP_URL}/app/billing?status=cancelled`,
+  });
+  return c.json({ url: session.url });
+});
+
 keystone.get("/api/billing/status", requireUser, async (c) => {
   const [s] = await db.select().from(subscriptions).where(eq(subscriptions.userId, c.get("user").id));
+  const [life] = await db.select().from(lifetimeAccess).where(eq(lifetimeAccess.userId, c.get("user").id));
+  const active = c.get("isAdmin") || !!life || ["active", "trialing"].includes(s?.status ?? "");
   return c.json({
     isAdmin: c.get("isAdmin"),
-    status: s?.status ?? "none",
+    lifetime: !!life,
+    status: life ? "lifetime" : s?.status ?? "none",
     currentPeriodEnd: s?.currentPeriodEnd ?? null,
-    active: c.get("isAdmin") || ["active", "trialing"].includes(s?.status ?? ""),
+    active,
   });
 });
 
@@ -135,6 +157,9 @@ keystone.post("/api/stripe/webhook", async (c) => {
     if (s.mode === "subscription" && s.subscription) {
       const id = typeof s.subscription === "string" ? s.subscription : s.subscription.id;
       await syncSubscription(await stripe.subscriptions.retrieve(id));
+    } else if (s.mode === "payment" && s.client_reference_id) {
+      const cust = typeof s.customer === "string" ? s.customer : s.customer?.id ?? "";
+      await db.insert(lifetimeAccess).values({ userId: s.client_reference_id, stripeCustomerId: cust }).onConflictDoNothing();
     }
   } else if (
     event.type === "customer.subscription.created" ||
@@ -197,6 +222,198 @@ keystone.post("/api/hot-leads/:id/promote", requireUser, requireSub, async (c) =
   return c.json(p, 201);
 });
 
+/* ---------------- funnels: AI-generated lead capture pages ---------------- */
+
+/** Daily lead-capture allowance per plan (funnel opt-ins). Lifetime = top tier. */
+const LEAD_DAILY_LIMIT: Record<string, number> = { basic: 10, pro: 50, proplus: 200, lifetime: 200 };
+
+const slugify = (s: string) =>
+  s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60) || "funnel";
+
+async function uniqueSlug(base: string) {
+  const root = slugify(base);
+  let n = 0;
+  while (true) {
+    const slug = n ? `${root}-${n}` : root;
+    const [row] = await db.select({ id: funnels.id }).from(funnels).where(eq(funnels.slug, slug));
+    if (!row) return slug;
+    n++;
+  }
+}
+
+const escHtml = (s: unknown) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]!));
+
+/** Server-rendered landing page from the AI's structured funnel JSON. */
+function renderFunnelPage(d: {
+  title: string; headline: string; subhead: string; cta: string;
+  bullets: string[]; sections: { h: string; p: string }[]; formTitle: string;
+}, slug: string) {
+  const bullets = (Array.isArray(d.bullets) ? d.bullets : []).slice(0, 6).map((b) => `<li>${escHtml(b)}</li>`).join("");
+  const sections = (Array.isArray(d.sections) ? d.sections : []).slice(0, 4).map((s) =>
+    `<section class="w"><h2>${escHtml(s.h)}</h2><p>${escHtml(s.p)}</p></section>`).join("");
+  return `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escHtml(d.title)}</title><style>
+*{box-sizing:border-box}body{margin:0;font:17px/1.6 system-ui,sans-serif;color:#0B0F1A;background:#F4F6FA}
+.h{padding:11vh 5vw;background:#4F5BFF;color:#fff}.h h1{font-size:clamp(36px,7vw,72px);line-height:1;margin:0 0 14px;letter-spacing:-.03em}.h p{font-size:20px;max-width:640px;margin:0 0 18px;opacity:.92}
+.b{display:inline-block;background:#19E6B4;color:#0B0F1A;padding:13px 30px;border-radius:999px;text-decoration:none;font-weight:800;font-size:17px}
+.w{padding:6vh 5vw}.w h2{font-size:30px;margin:0 0 12px;letter-spacing:-.02em}.w p{max-width:680px;color:#3A4356}
+ul.ben{list-style:none;padding:0 5vw 2vh;display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}
+ul.ben li{background:#fff;border-radius:14px;padding:16px;box-shadow:0 1px 2px rgba(11,15,26,.06);font-weight:600}
+#leadform{padding:8vh 5vw;background:#0B0F1A;color:#fff}#leadform h2{font-size:32px;margin:0 0 8px}#leadform p{opacity:.75;margin:0 0 18px}
+#leadform form{display:grid;gap:10px;max-width:480px}#leadform input{padding:13px;border-radius:10px;border:1px solid #2A3350;background:#141B30;color:#fff;font-size:16px}
+#leadform button{padding:15px;border-radius:999px;border:0;background:#19E6B4;color:#0B0F1A;font-weight:800;font-size:17px;cursor:pointer}
+#leadform .ok{display:none;background:#123326;border:1px solid #19E6B4;border-radius:12px;padding:16px;max-width:480px}
+footer{padding:22px 5vw;font-size:13px;color:#5B6475}
+</style></head><body>
+<div class="h"><h1>${escHtml(d.headline)}</h1><p>${escHtml(d.subhead)}</p><a class="b" href="#leadform">${escHtml(d.cta || "Get started")}</a></div>
+<ul class="ben">${bullets}</ul>${sections}
+<section id="leadform"><h2>${escHtml(d.formTitle || "Get your free quote")}</h2><p>Drop your details and we will be in touch fast.</p>
+<form id="lf"><input name="name" required placeholder="Full name"><input name="email" required type="email" placeholder="Email"><input name="phone" placeholder="Phone (optional)"><div style="display:grid;grid-template-columns:1fr 1fr;gap:10px"><input name="city" placeholder="City"><input name="state" placeholder="State"></div><button type="submit">${escHtml(d.cta || "Claim my free quote")}</button></form>
+<div class="ok" id="lok">Thanks — your request is in. We will reach out shortly.</div></section>
+<footer>Powered by AIU funnels</footer>
+<script>document.getElementById('lf').addEventListener('submit',async e=>{e.preventDefault();const f=e.target,d={};new FormData(f).forEach((v,k)=>d[k]=v);const r=await fetch('/api/funnels/${slug}/leads',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(d)});if(r.ok){document.getElementById('lf').style.display='none';document.getElementById('lok').style.display='block'}else{const j=await r.json().catch(()=>({}));alert(j.error||'Something went wrong.')}});<\/script>
+</body></html>`;
+}
+
+/** Shared daily-AI-limit check. Returns an error response or null when OK. */
+async function aiLimitHit(c: any) {
+  if (c.get("isAdmin")) return null;
+  const [s] = await db.select().from(subscriptions).where(eq(subscriptions.userId, c.get("user").id));
+  const [life] = await db.select().from(lifetimeAccess).where(eq(lifetimeAccess.userId, c.get("user").id));
+  const plan = life ? "lifetime" : s?.plan ?? "basic";
+  const limit = DAILY_LIMIT[plan] ?? 20;
+  const day = new Date().toISOString().slice(0, 10);
+  const [u] = await db.select().from(aiUsage).where(and(eq(aiUsage.userId, c.get("user").id), eq(aiUsage.day, day)));
+  if ((u?.n ?? 0) >= limit) return c.json({ error: `Daily AI limit reached (${limit}). It resets tomorrow, or upgrade your plan.` }, 429);
+  await db.insert(aiUsage).values({ userId: c.get("user").id, day, n: 1 })
+    .onConflictDoUpdate({ target: [aiUsage.userId, aiUsage.day], set: { n: sql`${aiUsage.n} + 1` } });
+  return null;
+}
+
+/** One-click funnel generation: industry in, hosted landing page out. */
+keystone.post("/api/funnels/generate", requireUser, requireSub, async (c) => {
+  const b = await c.req.json().catch(() => ({}));
+  const industry = clean(b.industry, 80);
+  const business = clean(b.business, 120) || industry;
+  if (!industry) return c.json({ error: "industry is required" }, 400);
+  if (!process.env.ANTHROPIC_API_KEY) return c.json({ error: "AI is not configured yet." }, 503);
+  const blocked = await aiLimitHit(c);
+  if (blocked) return blocked;
+  let data: any;
+  try {
+    const r = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: { "x-api-key": process.env.ANTHROPIC_API_KEY!, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+      body: JSON.stringify({
+        model: AI_MODEL, max_tokens: 2500,
+        system: SYSTEM.funnel,
+        messages: [{ role: "user", content: `Industry: ${industry}\nBusiness name: ${business}` }],
+      }),
+    });
+    if (!r.ok) return c.json({ error: "The AI service had a problem. Try again in a moment." }, 502);
+    const j: any = await r.json();
+    const text = (j.content ?? []).filter((x: any) => x.type === "text").map((x: any) => x.text).join("\n").trim();
+    data = JSON.parse(text);
+  } catch {
+    return c.json({ error: "Could not generate the funnel. Try again." }, 502);
+  }
+  if (!data || typeof data.headline !== "string") return c.json({ error: "The AI returned an unusable funnel. Try again." }, 502);
+  const slug = await uniqueSlug(`${business} ${industry}`);
+  const html = renderFunnelPage({
+    title: String(data.title || business), headline: data.headline, subhead: String(data.subhead || ""),
+    cta: String(data.cta || "Get started"), bullets: data.bullets || [], sections: data.sections || [],
+    formTitle: String(data.formTitle || "Get your free quote"),
+  }, slug);
+  const [row] = await db.insert(funnels).values({
+    userId: c.get("user").id, slug, industry, title: String(data.title || business),
+    html, adAngles: data.adAngles ?? {}, status: "draft",
+  }).returning();
+  return c.json({ ...row, url: `${APP_URL}/f/${slug}` }, 201);
+});
+
+keystone.get("/api/funnels", requireUser, requireSub, async (c) => {
+  const rows = await db.select().from(funnels).where(eq(funnels.userId, c.get("user").id)).orderBy(desc(funnels.updatedAt));
+  return c.json(rows.map((r) => ({ ...r, html: undefined, url: `${APP_URL}/f/${r.slug}` })));
+});
+
+keystone.post("/api/funnels/:id/publish", requireUser, requireSub, async (c) => {
+  const id = Number(c.req.param("id"));
+  const [f] = await db.select().from(funnels).where(and(eq(funnels.id, id), eq(funnels.userId, c.get("user").id)));
+  if (!f) return c.json({ error: "Not found" }, 404);
+  const { status } = await c.req.json().catch(() => ({ status: "live" }));
+  await db.update(funnels).set({ status: status === "live" ? "live" : "draft", updatedAt: new Date() }).where(eq(funnels.id, id));
+  return c.json({ ok: true, url: `${APP_URL}/f/${f.slug}` });
+});
+
+keystone.delete("/api/funnels/:id", requireUser, requireSub, async (c) => {
+  const id = Number(c.req.param("id"));
+  await db.delete(funnelLeads).where(and(eq(funnelLeads.funnelId, id), eq(funnelLeads.userId, c.get("user").id)));
+  await db.delete(funnels).where(and(eq(funnels.id, id), eq(funnels.userId, c.get("user").id)));
+  return c.json({ ok: true });
+});
+
+/** Public funnel page. */
+keystone.get("/f/:slug", async (c) => {
+  const [f] = await db.select().from(funnels).where(eq(funnels.slug, c.req.param("slug")));
+  if (!f || f.status !== "live") return c.text("Not found", 404);
+  c.header("Cache-Control", "no-store");
+  return c.html(f.html);
+});
+
+const funnelLeadHits = new Map<string, number[]>();
+
+/** Public opt-in: real visitors only. Tier-capped per funnel owner per day. */
+keystone.post("/api/funnels/:slug/leads", async (c) => {
+  const [f] = await db.select().from(funnels).where(eq(funnels.slug, c.req.param("slug")));
+  if (!f || f.status !== "live") return c.json({ error: "Not found" }, 404);
+  const ip = c.req.header("x-forwarded-for")?.split(",")[0].trim() ?? "unknown";
+  const now = Date.now();
+  const recent = (funnelLeadHits.get(ip) ?? []).filter((t) => now - t < 3_600_000);
+  if (recent.length >= 5) return c.json({ error: "Too many requests. Please try again later." }, 429);
+  funnelLeadHits.set(ip, [...recent, now]);
+
+  const [s] = await db.select().from(subscriptions).where(eq(subscriptions.userId, f.userId));
+  const [life] = await db.select().from(lifetimeAccess).where(eq(lifetimeAccess.userId, f.userId));
+  const plan = life ? "lifetime" : s?.plan ?? "basic";
+  const dayStart = new Date(); dayStart.setHours(0, 0, 0, 0);
+  const [cnt] = await db.select({ n: sql<number>`count(*)` }).from(funnelLeads)
+    .where(and(eq(funnelLeads.userId, f.userId), sql`${funnelLeads.createdAt} >= ${dayStart.getTime()}`));
+  if ((cnt?.n ?? 0) >= (LEAD_DAILY_LIMIT[plan] ?? 10))
+    return c.json({ error: "This funnel is not accepting new leads right now." }, 429);
+
+  const b = await c.req.json().catch(() => ({}));
+  const name = clean(b.name, 100), email = clean(b.email, 200);
+  if (!name || !email || !/^\S+@\S+\.\S+$/.test(email)) return c.json({ error: "Name and a valid email are required." }, 400);
+  const [row] = await db.insert(funnelLeads).values({
+    funnelId: f.id, userId: f.userId, name, email,
+    phone: clean(b.phone, 40), city: clean(b.city, 80), state: clean(b.state, 40), ip,
+  }).returning();
+  return c.json({ ok: true, id: row.id }, 201);
+});
+
+/** My available (unclaimed) funnel leads. Claimed ones leave this pool. */
+keystone.get("/api/funnel-leads", requireUser, requireSub, async (c) => {
+  const rows = await db.select().from(funnelLeads)
+    .where(and(eq(funnelLeads.userId, c.get("user").id), eq(funnelLeads.status, "new")))
+    .orderBy(desc(funnelLeads.createdAt));
+  return c.json(rows);
+});
+
+/** Claim a lead: moves it to the Pipeline and removes it from the available pool. */
+keystone.post("/api/funnel-leads/:id/claim", requireUser, requireSub, async (c) => {
+  const userId = c.get("user").id;
+  const [l] = await db.select().from(funnelLeads)
+    .where(and(eq(funnelLeads.id, Number(c.req.param("id"))), eq(funnelLeads.userId, userId), eq(funnelLeads.status, "new")));
+  if (!l) return c.json({ error: "Not found" }, 404);
+  const [f] = await db.select().from(funnels).where(eq(funnels.id, l.funnelId));
+  const [p] = await db.insert(prospects).values({
+    userId, businessName: l.name, contactName: l.name, email: l.email, phone: l.phone,
+    city: l.city, industry: f?.industry ?? null, stage: "new",
+    notes: `Claimed from funnel "${f?.title ?? ""}" on ${new Date().toISOString().slice(0, 10)}. State: ${l.state ?? ""}. IP: ${l.ip ?? ""}.`,
+  }).returning();
+  await db.update(funnelLeads).set({ status: "claimed" }).where(eq(funnelLeads.id, l.id));
+  return c.json(p, 201);
+});
+
 /* ---------------- owner-only admin ---------------- */
 
 const admin = new Hono<Env>();
@@ -236,6 +453,7 @@ const SYSTEM: Record<string, string> = {
   design: JSON_ONLY + "You restyle a small business website. The context holds the current brief. Return {\"primary\":\"#rrggbb\",\"ink\":\"#rrggbb\",\"surface\":\"#rrggbb\",\"tagline\":\"\",\"services\":\"comma separated list or empty string\",\"note\":\"one sentence on what changed\"}. Use ink as a dark text/nav color, surface as a light page background, and a primary that keeps white text readable.",
   coach: NO_HYPE + "You are the personal business assistant for the owner of AIU, a small business that sells AI-built websites, ads and leads tools, subscriptions, and white-label copies. Give short, concrete, step-by-step help and a realistic daily plan to earn money. Use the owner's numbers in the context. The app has these tabs: AI, Studio (build sites), Leads (find and score businesses), Pipeline (prospects and cold email sequences), Listings (ad copy), Publish (put client sites live), Revenue, Earn (payment links), Admin (subscribers and demo requests), Settings. Point to the right tab for each step. Never promise income or results. Remind the owner to follow email and advertising laws and to verify leads before contacting them. Keep answers under 250 words unless asked for more.",
   write: NO_HYPE + "You write clear, friendly website and marketing copy for small businesses. Reply with the copy only.",
+  funnel: JSON_ONLY + NO_HYPE + "You build a lead-capture funnel for a local service business. The user gives an industry and business name. Return {\"title\",\"headline\",\"subhead\",\"cta\",\"bullets\":[4 to 6 short benefit strings],\"sections\":[exactly 3 objects {\"h\",\"p\"}],\"formTitle\",\"adAngles\":{\"google\":{\"headlines\":[3 to 5 strings, max 30 characters each],\"descriptions\":[2 strings, max 90 characters each]},\"facebook\":string}}. Copy must be honest and specific: no fake testimonials, no invented statistics, no guaranteed outcomes.",
 };
 
 keystone.post("/api/ai", requireUser, requireSub, async (c) => {
