@@ -15,6 +15,12 @@ app.on(["GET", "POST"], "/api/auth/*", (c) => auth.handler(c.req.raw));
 app.route("/", keystone);
 
 // The Keystone app itself: owner or active subscribers only. Served from /private, never from /public.
+// Stripe sends buyers here after checkout. Redirect into the app (preserving the result) instead of 404ing.
+app.get("/app/billing", (c) => {
+  const status = c.req.query("status");
+  return c.redirect(`/app${status ? `?billing=${encodeURIComponent(status)}` : ""}`);
+});
+
 app.get("/app", async (c) => {
   const session = await auth.api.getSession({ headers: c.req.raw.headers });
   if (!session?.user) return c.redirect("/#login");
