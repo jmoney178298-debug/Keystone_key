@@ -69,17 +69,21 @@ const PRICES: Record<string, string | undefined> = {
 
 /* ---------------- affiliates: tracking + commissions ---------------- */
 
-const AFFILIATE_RATE = 0.30;
+const AFFILIATE_RATE = 0.15;
+/** Partner yearly members. */
 const PARTNER_RATE = 0.40;
 /** Affiliate revenue tiers (lifetime referred revenue in cents -> rate). */
 const AFFILIATE_TIERS = [
-  { atCents: 1500000, rate: 0.40 }, // $15k
-  { atCents: 500000, rate: 0.35 },  // $5k
+  { atCents: 5000000, rate: 0.50 },  // $50k
+  { atCents: 1500000, rate: 0.35 },  // $15k
+  { atCents: 500000, rate: 0.25 },   // $5k
 ];
-/** 90-day accelerator: refer this much within 90 days of joining -> 50% forever. */
-const ACCELERATOR_CENTS = 1000000; // $10k
-const ACCELERATOR_DAYS = 90;
-const ACCELERATOR_RATE = 0.50;
+/** Fast track: refer this much within 90 days of joining -> 50% for life (first 5 only). */
+const FAST_TRACK_CENTS = 2500000; // $25k
+const FAST_TRACK_DAYS = 90;
+/** Lifetime-50% lock caps. */
+const ELITE_LADDER_MAX = 15;
+const ELITE_FAST_MAX = 5;
 const AFF_COOKIE = "aff_code";
 const AFF_COOKIE_DAYS = 60;
 
@@ -116,24 +120,44 @@ async function affiliateRevenueCents(affiliateId: number): Promise<number> {
   return r?.total ?? 0;
 }
 
-/** Effective commission rate: partner 40%, accelerator elites 50%, else revenue tiers from 30%. */
+/** Effective commission rate: partner 40%, lifetime-locked elites 50%, else revenue tiers from 15%. */
 async function affiliateRateFor(aff: typeof affiliates.$inferSelect): Promise<number> {
   if (aff.tier === "partner") return PARTNER_RATE;
-  if (aff.elite) return ACCELERATOR_RATE;
+  if (aff.elite) return 0.50;
   const rev = await affiliateRevenueCents(aff.id);
   for (const t of AFFILIATE_TIERS) if (rev >= t.atCents) return t.rate;
   return AFFILIATE_RATE;
 }
 
-/** Unlock the 90-day accelerator: $10k+ referred within 90 days of joining -> 50% forever. */
-async function checkAccelerator(aff: typeof affiliates.$inferSelect): Promise<boolean> {
+/** How many lifetime-50% locks have been granted via a given path. */
+async function eliteCount(kind: string): Promise<number> {
+  const [r] = await db.select({ n: sql<number>`count(*)` }).from(affiliates)
+    .where(and(eq(affiliates.elite, 1), eq(affiliates.eliteKind, kind)));
+  return r?.n ?? 0;
+}
+
+/**
+ * Lifetime-50% lock. Two paths:
+ *  - Ladder: climb to $50k referred — first 15 lock 50% for life.
+ *  - Fast track: $25k in the first 90 days — first 5 lock 50% for life.
+ * The lock never decays on its own; only the owner can revoke it.
+ */
+async function checkElite(aff: typeof affiliates.$inferSelect): Promise<boolean> {
   if (aff.elite || aff.tier === "partner") return false;
-  const daysSinceJoin = (Date.now() - new Date(aff.createdAt).getTime()) / 86400000;
-  if (daysSinceJoin > ACCELERATOR_DAYS) return false;
   const rev = await affiliateRevenueCents(aff.id);
-  if (rev >= ACCELERATOR_CENTS) {
-    await db.update(affiliates).set({ elite: 1 }).where(eq(affiliates.id, aff.id));
-    return true;
+  if (rev >= AFFILIATE_TIERS[0].atCents) {
+    if (await eliteCount("ladder") < ELITE_LADDER_MAX) {
+      await db.update(affiliates).set({ elite: 1, eliteKind: "ladder" }).where(eq(affiliates.id, aff.id));
+      return true;
+    }
+    return false;
+  }
+  const daysSinceJoin = (Date.now() - new Date(aff.createdAt).getTime()) / 86400000;
+  if (daysSinceJoin <= FAST_TRACK_DAYS && rev >= FAST_TRACK_CENTS) {
+    if (await eliteCount("fast") < ELITE_FAST_MAX) {
+      await db.update(affiliates).set({ elite: 1, eliteKind: "fast" }).where(eq(affiliates.id, aff.id));
+      return true;
+    }
   }
   return false;
 }
@@ -301,7 +325,7 @@ keystone.post("/api/stripe/webhook", async (c) => {
             amountCents, commissionCents: Math.round(amountCents * rate),
             stripeEventId: event.id,
           }).onConflictDoNothing();
-          await checkAccelerator(aff);
+          await checkElite(aff);
         }
       }
     }
@@ -369,10 +393,12 @@ keystone.get("/api/affiliates/me", requireUser, async (c) => {
   const nextTier = aff.tier === "partner" || aff.elite ? null
     : [...AFFILIATE_TIERS].reverse().find((t) => revenueCents < t.atCents) ?? null;
   const daysSinceJoin = (Date.now() - new Date(aff.createdAt).getTime()) / 86400000;
-  const accelerator = aff.tier === "partner" ? null : {
+  const [ladderElites, fastElites] = await Promise.all([eliteCount("ladder"), eliteCount("fast")]);
+  const fastTrack = aff.tier === "partner" ? null : {
     elite: !!aff.elite,
-    daysLeft: Math.max(0, Math.ceil(ACCELERATOR_DAYS - daysSinceJoin)),
-    targetCents: ACCELERATOR_CENTS,
+    daysLeft: Math.max(0, Math.ceil(FAST_TRACK_DAYS - daysSinceJoin)),
+    targetCents: FAST_TRACK_CENTS,
+    spotsLeft: Math.max(0, ELITE_FAST_MAX - fastElites),
     revenueCents,
     qualified: !!aff.elite,
   };
@@ -380,10 +406,12 @@ keystone.get("/api/affiliates/me", requireUser, async (c) => {
     affiliate: { ...aff, link: `${APP_URL}/r/${aff.code}`, rate },
     stats: { referrals: stats?.n ?? 0, earnedCents: stats?.earned ?? 0, paidCents: stats?.paid ?? 0, revenueCents },
     tiers: [
-      { rate: 0.30, atCents: 0, label: "Starter" },
+      { rate: 0.15, atCents: 0, label: "Starter" },
       ...[...AFFILIATE_TIERS].reverse().map((t) => ({ rate: t.rate, atCents: t.atCents, label: `$${(t.atCents / 100).toLocaleString()}+ referred` })),
     ],
-    nextTier, accelerator, recent,
+    nextTier, fastTrack,
+    ladderSpotsLeft: Math.max(0, ELITE_LADDER_MAX - ladderElites),
+    recent,
   });
 });
 
@@ -582,6 +610,8 @@ admin.get("/affiliates", async (c) => {
     code: affiliates.code,
     tier: affiliates.tier,
     status: affiliates.status,
+    elite: affiliates.elite,
+    eliteKind: affiliates.eliteKind,
     createdAt: affiliates.createdAt,
     referrals: sql<number>`count(${referrals.id})`,
     earnedCents: sql<number>`coalesce(sum(${referrals.commissionCents}),0)`,
@@ -608,6 +638,15 @@ admin.post("/affiliates/:id/status", async (c) => {
   const { status } = await c.req.json().catch(() => ({}));
   if (!["active", "paused"].includes(status)) return c.json({ error: "Invalid status" }, 400);
   await db.update(affiliates).set({ status }).where(eq(affiliates.id, Number(c.req.param("id"))));
+  return c.json({ ok: true });
+});
+/** Owner: grant or revoke the lifetime-50% lock by hand. */
+admin.post("/affiliates/:id/elite", async (c) => {
+  const { elite } = await c.req.json().catch(() => ({}));
+  const v = elite ? 1 : 0;
+  await db.update(affiliates)
+    .set({ elite: v, eliteKind: v ? "manual" : null })
+    .where(eq(affiliates.id, Number(c.req.param("id"))));
   return c.json({ ok: true });
 });
 /** Partner-submitted ideas. */

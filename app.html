@@ -168,28 +168,28 @@ async function claimLead(id){const r=await api('/api/funnel-leads/'+id+'/claim',
 let AFF=null;
 async function affLoad(){const r=await api('/api/affiliates/me');AFF=r.ok?r.data:null;if(view=='aff')render()}
 function vAff(){
-  return `<div class="fade"><h1>Affi<i>liates</i></h1><p class="sub">Share your link. Start at 30% and climb to 50% as you refer more — paid out monthly once you hit $50.</p>
+  return `<div class="fade"><h1>Affi<i>liates</i></h1><p class="sub">Share your link. Start at 15% and climb to 50% as you refer more — paid out monthly once you hit $50.</p>
   <div id="affbody">${AFF===null?'<div class="card">Loading...</div>':(AFF.affiliate?affDash(AFF):affJoin())}</div></div>`;
 }
-function affJoin(){return `<div class="card"><b>Join free</b><p style="color:var(--stone)">Get your personal referral link in one tap. Anyone who buys through it is tracked for 60 days. You start at <b>30% commission</b> — refer more and your rate climbs, up to 50%.</p><div class="row" style="margin-top:10px"><button class="btn lime" onclick="affDoJoin()">Get my referral link</button></div></div>`+affPartnerCard()}
+function affJoin(){return `<div class="card"><b>Join free</b><p style="color:var(--stone)">Get your personal referral link in one tap. Anyone who buys through it is tracked for 60 days. You start at <b>15% commission</b> — refer more and your rate climbs, up to 50% for life.</p><div class="row" style="margin-top:10px"><button class="btn lime" onclick="affDoJoin()">Get my referral link</button></div></div>`+affPartnerCard()}
 async function affDoJoin(){const r=await api('/api/affiliates/join',{});if(r.ok)affLoad();else toast(r.data.error||'Could not join.')}
 function affDash(A){const a=A.affiliate,s=A.stats;
   const tierPill=a.tier=='partner'
     ?'<span class="pill" style="border-color:var(--lime);color:var(--lime)">PARTNER · 40%</span>'
-    :a.elite?'<span class="pill" style="border-color:var(--lime);color:var(--lime)">ELITE · 50%</span>'
+    :a.elite?'<span class="pill" style="border-color:var(--lime);color:var(--lime)">ELITE · 50% FOR LIFE</span>'
     :`<span class="pill">${Math.round(a.rate*100)}% rate</span>`;
   const ladder=A.tiers.map(t=>{const cur=a.tier!='partner'&&!a.elite&&Math.abs(a.rate-t.rate)<0.001;
     return `<div class="row" style="padding:6px 0;border-top:1px solid var(--line);justify-content:space-between"><span>${esc(t.label)}</span><b class="mono"${cur?' style="color:var(--lime)"':''}>${Math.round(t.rate*100)}%</b></div>`}).join('');
   const next=A.nextTier?`<p class="sub" style="margin:8px 0 0">Refer <b class="mono">${usd(A.nextTier.atCents-s.revenueCents)}</b> more to unlock <b>${Math.round(A.nextTier.rate*100)}%</b>.</p>`:'';
-  const acc=A.accelerator&&!A.accelerator.qualified
-    ?`<div class="card" style="border:1px solid var(--lime)"><b>⚡ 90-day accelerator</b><p style="color:var(--stone)">Refer <b class="mono">${usd(A.accelerator.targetCents)}</b> in your first 90 days — <b>${A.accelerator.daysLeft} days</b> left, you're at <b class="mono">${usd(A.accelerator.revenueCents)}</b> — and you lock in <b>50% commission for life</b>, plus a strategy call about what's next.</p></div>`:'';
+  const ft=A.fastTrack&&!A.fastTrack.qualified
+    ?`<div class="card" style="border:1px solid var(--lime)"><b>⚡ Fast track — 50% for life</b><p style="color:var(--stone)">Refer <b class="mono">${usd(A.fastTrack.targetCents)}</b> in your first 90 days — <b>${A.fastTrack.daysLeft} days</b> left, you're at <b class="mono">${usd(A.fastTrack.revenueCents)}</b>, <b>${A.fastTrack.spotsLeft} of 5</b> spots left — and you lock <b>50% for life</b>. Or climb the ladder to $50k referred: first 15 lock it in (<b>${A.ladderSpotsLeft} of 15</b> spots left).</p></div>`:'';
   const ideaCard=a.tier=='partner'
     ?`<div class="card"><b>Pitch an idea</b><p style="color:var(--stone)">Partners get a direct line. Ideas you share become part of AIU — submitting one doesn't grant ownership or rights in the business.</p><div style="margin-top:10px"><input id="ideaTitle" placeholder="Idea title" maxlength="120" style="margin-bottom:8px"><textarea id="ideaBody" placeholder="Describe it..." maxlength="2000" style="min-height:80px"></textarea></div><div class="row" style="margin-top:10px"><button class="btn lime" onclick="sendIdea()">Send idea</button></div></div>`:'';
   return `<div class="card"><b>Your referral link ${tierPill}</b>
   <div class="row" style="margin-top:10px"><input readonly value="${esc(a.link)}" onclick="this.select()" style="flex:1;min-width:200px"><button class="btn lime" onclick="cp('${esc(a.link)}')">Copy link</button></div>
   <p class="sub" style="margin:8px 0 0">Anyone who buys through your link is tracked for 60 days.</p></div>
   <div class="grid"><div class="card"><label>Referrals</label><div class="stat mono">${s.referrals}</div></div><div class="card"><label>Earned</label><div class="stat mono">${usd(s.earnedCents)}</div></div><div class="card"><label>Paid out</label><div class="stat mono">${usd(s.paidCents)}</div></div></div>
-  ${acc}
+  ${ft}
   <div class="card"><b>Commission tiers</b><div style="margin-top:6px">${ladder}</div>${next}</div>
   ${ideaCard}
   ${a.tier=='partner'?'':affPartnerCard()}
@@ -221,7 +221,7 @@ async function admLoad(){
     const c=s=>(o.subscribers.find(x=>x.status==s)||{n:0}).n;
     $('#adm').innerHTML=`<div class="grid"><div class="card"><label>Trialing</label><div class="stat mono">${c('trialing')}</div></div><div class="card"><label>Paying</label><div class="stat mono">${c('active')}</div></div><div class="card"><label>New demo requests</label><div class="stat mono">${o.newInboundLeads}</div></div><div class="card"><label>Won revenue</label><div class="stat mono">${money(o.wonRevenue)}</div></div></div>
     <div class="card"><b>Pending referral payouts</b>${refs.map(r=>`<div class="row" style="padding:8px 0;border-top:1px solid var(--line);justify-content:space-between"><span class="pill">${esc(r.kind)}</span><span class="mono">${usd(r.commissionCents)}</span><button class="btn ghost" onclick="refPay(${r.id})">Mark paid</button></div>`).join('')||'<p style="color:var(--stone)">None pending.</p>'}</div>
-    <div class="card"><b>Affiliates</b>${affs.map(a=>`<div class="row" style="padding:8px 0;border-top:1px solid var(--line);justify-content:space-between"><span class="mono">${esc(a.code)}</span><span class="pill">${esc(a.tier)} · ${esc(a.status)}</span><span class="mono">${usd(a.earnedCents)}</span>${a.status=='active'?`<button class="btn danger" onclick="affStatus(${a.id},'paused')">Pause</button>`:`<button class="btn ghost" onclick="affStatus(${a.id},'active')">Resume</button>`}</div>`).join('')||'<p style="color:var(--stone)">None yet.</p>'}</div>
+    <div class="card"><b>Affiliates</b>${affs.map(a=>`<div class="row" style="padding:8px 0;border-top:1px solid var(--line);justify-content:space-between"><span class="mono">${esc(a.code)}</span><span class="pill">${esc(a.tier)} · ${esc(a.status)}${a.elite?' · <b style="color:var(--lime)">50% LIFE</b>':''}</span><span class="mono">${usd(a.earnedCents)}</span><span class="row">${a.elite?`<button class="btn danger" onclick="affElite(${a.id},0)">Revoke 50%</button>`:`<button class="btn ghost" onclick="affElite(${a.id},1)">Grant 50%</button>`}${a.status=='active'?`<button class="btn danger" onclick="affStatus(${a.id},'paused')">Pause</button>`:`<button class="btn ghost" onclick="affStatus(${a.id},'active')">Resume</button>`}</span></div>`).join('')||'<p style="color:var(--stone)">None yet.</p>'}</div>
     <div class="card"><b>Partner ideas</b>${ideaz.map(x=>`<div style="padding:8px 0;border-top:1px solid var(--line)"><b>${esc(x.title)}</b> <span class="pill">${esc(x.status)}</span><div style="color:var(--stone);font-size:13px">${esc(x.body)}</div><div class="row" style="margin-top:6px">${['reviewing','shipped','declined'].map(s=>`<button class="btn ghost" onclick="ideaStatus(${x.id},'${s}')">${s}</button>`).join('')}</div></div>`).join('')||'<p style="color:var(--stone)">None yet.</p>'}</div>
     <div class="card"><b>Demo requests</b>${ls.map(l=>`<div style="padding:8px 0;border-top:1px solid var(--line)"><b>${esc(l.name)}</b> <span class="pill">${esc(l.status)}</span><div style="color:var(--stone)">${esc(l.email)} ${esc(l.company||'')} ${esc(l.message||'')}</div><div class="row" style="margin-top:6px">${['contacted','won','lost'].map(s=>`<button class="btn ghost" onclick="admSet(${l.id},'${s}')">${s}</button>`).join('')}</div></div>`).join('')||'<p style="color:var(--stone)">None yet.</p>'}</div>
     <div class="card"><b>Subscribers</b>${subs.map(s=>`<div class="row" style="padding:6px 0;border-top:1px solid var(--line)"><span class="mono" style="flex:1;font-size:12px">${esc(s.userId.slice(0,8))}</span><span class="pill">${esc(s.plan)}</span><span class="pill">${esc(s.status)}</span></div>`).join('')||'<p style="color:var(--stone)">No subscribers yet.</p>'}</div>`;
@@ -230,6 +230,7 @@ async function admLoad(){
 async function admSet(id,status){await fetch('/api/admin/leads/'+id,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({status})});admLoad()}
 async function refPay(id){await fetch('/api/admin/referrals/'+id+'/pay',{method:'POST'});admLoad()}
 async function affStatus(id,status){await fetch('/api/admin/affiliates/'+id+'/status',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({status})});admLoad()}
+async function affElite(id,elite){await fetch('/api/admin/affiliates/'+id+'/elite',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({elite})});admLoad()}
 async function ideaStatus(id,status){await fetch('/api/admin/ideas/'+id+'/status',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({status})});admLoad()}
 
 /* ---------- boot ---------- */

@@ -113,8 +113,10 @@ export const affiliates = sqliteTable("affiliates", {
   tier: text("tier").notNull().default("affiliate"),
   /** active | paused */
   status: text("status").notNull().default("active"),
-  /** 1 = unlocked the 90-day accelerator (50% rate, kept permanently) */
+  /** 1 = locked 50% for life (first 15 ladder / first 5 fast-track, or owner grant) */
   elite: integer("elite").notNull().default(0),
+  /** ladder | fast | manual (how the lifetime lock was earned) */
+  eliteKind: text("elite_kind"),
   createdAt: createdAt(),
 });
 
