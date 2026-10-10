@@ -11,7 +11,7 @@ import Stripe from "stripe";
 import crypto from "node:crypto";
 import { db } from "./db";
 import { auth } from "./auth";
-import { affiliates, aiUsage, funnels, funnelLeads, leads, lifetimeAccess, partnerAccess, prospects, referrals, stripeEvents, subscriptions } from "./schema";
+import { affiliates, aiUsage, funnels, funnelLeads, ideas, leads, lifetimeAccess, partnerAccess, prospects, referrals, stripeEvents, subscriptions } from "./schema";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
 const OWNER_EMAIL = (process.env.OWNER_EMAIL ?? "").trim().toLowerCase();
@@ -70,7 +70,16 @@ const PRICES: Record<string, string | undefined> = {
 /* ---------------- affiliates: tracking + commissions ---------------- */
 
 const AFFILIATE_RATE = 0.30;
-const PARTNER_RATE = 0.50;
+const PARTNER_RATE = 0.40;
+/** Affiliate revenue tiers (lifetime referred revenue in cents -> rate). */
+const AFFILIATE_TIERS = [
+  { atCents: 1500000, rate: 0.40 }, // $15k
+  { atCents: 500000, rate: 0.35 },  // $5k
+];
+/** 90-day accelerator: refer this much within 90 days of joining -> 50% forever. */
+const ACCELERATOR_CENTS = 1000000; // $10k
+const ACCELERATOR_DAYS = 90;
+const ACCELERATOR_RATE = 0.50;
 const AFF_COOKIE = "aff_code";
 const AFF_COOKIE_DAYS = 60;
 
@@ -98,6 +107,35 @@ async function referralCodeFor(c: { req: any }, buyerUserId: string): Promise<st
     .where(and(eq(affiliates.code, code), eq(affiliates.status, "active")));
   if (!aff || aff.userId === buyerUserId) return undefined;
   return code;
+}
+
+/** Lifetime referred revenue for an affiliate, in cents. */
+async function affiliateRevenueCents(affiliateId: number): Promise<number> {
+  const [r] = await db.select({ total: sql<number>`coalesce(sum(${referrals.amountCents}),0)` })
+    .from(referrals).where(eq(referrals.affiliateId, affiliateId));
+  return r?.total ?? 0;
+}
+
+/** Effective commission rate: partner 40%, accelerator elites 50%, else revenue tiers from 30%. */
+async function affiliateRateFor(aff: typeof affiliates.$inferSelect): Promise<number> {
+  if (aff.tier === "partner") return PARTNER_RATE;
+  if (aff.elite) return ACCELERATOR_RATE;
+  const rev = await affiliateRevenueCents(aff.id);
+  for (const t of AFFILIATE_TIERS) if (rev >= t.atCents) return t.rate;
+  return AFFILIATE_RATE;
+}
+
+/** Unlock the 90-day accelerator: $10k+ referred within 90 days of joining -> 50% forever. */
+async function checkAccelerator(aff: typeof affiliates.$inferSelect): Promise<boolean> {
+  if (aff.elite || aff.tier === "partner") return false;
+  const daysSinceJoin = (Date.now() - new Date(aff.createdAt).getTime()) / 86400000;
+  if (daysSinceJoin > ACCELERATOR_DAYS) return false;
+  const rev = await affiliateRevenueCents(aff.id);
+  if (rev >= ACCELERATOR_CENTS) {
+    await db.update(affiliates).set({ elite: 1 }).where(eq(affiliates.id, aff.id));
+    return true;
+  }
+  return false;
 }
 
 keystone.post("/api/billing/checkout", requireUser, async (c) => {
@@ -151,19 +189,21 @@ keystone.post("/api/billing/lifetime", requireUser, async (c) => {
   return c.json({ url: session.url });
 });
 
-/** One-time purchase: Partner ($4,999). Needs STRIPE_PRICE_PARTNER in env. Upgrades the buyer to the 50% affiliate tier. */
+/** Yearly Partner subscription. Needs STRIPE_PRICE_PARTNER_YEARLY in env. */
 keystone.post("/api/billing/partner", requireUser, async (c) => {
-  const price = process.env.STRIPE_PRICE_PARTNER;
-  if (!price) return c.json({ error: "Partner purchase is not configured yet." }, 400);
+  const price = process.env.STRIPE_PRICE_PARTNER_YEARLY;
+  if (!price) return c.json({ error: "Partner checkout is not configured yet." }, 400);
   const [p] = await db.select().from(partnerAccess).where(eq(partnerAccess.userId, c.get("user").id));
   if (p) return c.json({ error: "You are already a partner." }, 400);
   const affCode = await referralCodeFor(c, c.get("user").id);
   const session = await stripe.checkout.sessions.create({
-    mode: "payment",
+    mode: "subscription",
     customer: await customerFor(c.get("user")),
     line_items: [{ price, quantity: 1 }],
     client_reference_id: c.get("user").id,
     metadata: { kind: "partner", ...(affCode ? { affCode } : {}) },
+    subscription_data: { metadata: { userId: c.get("user").id, kind: "partner" } },
+    allow_promotion_codes: true,
     success_url: `${APP_URL}/app/billing?status=success`,
     cancel_url: `${APP_URL}/app/billing?status=cancelled`,
   });
@@ -218,14 +258,25 @@ keystone.post("/api/stripe/webhook", async (c) => {
     const s = event.data.object as Stripe.Checkout.Session;
     const kind = s.metadata?.kind;
     const buyerId = s.client_reference_id || (s.metadata as any)?.userId;
-    if (s.mode === "subscription" && s.subscription) {
+    const cust = typeof s.customer === "string" ? s.customer : s.customer?.id ?? "";
+    if (s.mode === "subscription" && s.subscription && buyerId) {
       const id = typeof s.subscription === "string" ? s.subscription : s.subscription.id;
       await syncSubscription(await stripe.subscriptions.retrieve(id));
-    } else if (s.mode === "payment" && buyerId) {
-      const cust = typeof s.customer === "string" ? s.customer : s.customer?.id ?? "";
       if (kind === "partner") {
+        // Yearly Partner subscription: access lasts while the subscription is active.
+        await db.insert(partnerAccess).values({ userId: buyerId, stripeCustomerId: cust, stripeSubscriptionId: id })
+          .onConflictDoUpdate({ target: partnerAccess.userId, set: { stripeSubscriptionId: id, stripeCustomerId: cust } });
+        const [existingAff] = await db.select({ id: affiliates.id }).from(affiliates).where(eq(affiliates.userId, buyerId));
+        if (existingAff) {
+          await db.update(affiliates).set({ tier: "partner" }).where(eq(affiliates.id, existingAff.id));
+        } else {
+          await db.insert(affiliates).values({ userId: buyerId, code: await uniqueAffCode(), tier: "partner" });
+        }
+      }
+    } else if (s.mode === "payment" && buyerId) {
+      if (kind === "partner") {
+        // Legacy one-time Partner purchase.
         await db.insert(partnerAccess).values({ userId: buyerId, stripeCustomerId: cust }).onConflictDoNothing();
-        // Every partner gets the 50% referral tier (new affiliate record if they had none).
         const [existingAff] = await db.select({ id: affiliates.id }).from(affiliates).where(eq(affiliates.userId, buyerId));
         if (existingAff) {
           await db.update(affiliates).set({ tier: "partner" }).where(eq(affiliates.id, existingAff.id));
@@ -236,7 +287,7 @@ keystone.post("/api/stripe/webhook", async (c) => {
         await db.insert(lifetimeAccess).values({ userId: buyerId, stripeCustomerId: cust }).onConflictDoNothing();
       }
     }
-    // Referral commission on any completed purchase (initial sale only).
+    // Referral commission on any completed purchase (initial sale only), at the referrer's current tier rate.
     const affCode = (s.metadata as any)?.affCode;
     if (affCode && buyerId) {
       const [aff] = await db.select().from(affiliates)
@@ -244,12 +295,13 @@ keystone.post("/api/stripe/webhook", async (c) => {
       if (aff && aff.userId !== buyerId) {
         const amountCents = s.amount_total ?? 0;
         if (amountCents > 0) {
-          const rate = aff.tier === "partner" ? PARTNER_RATE : AFFILIATE_RATE;
+          const rate = await affiliateRateFor(aff);
           await db.insert(referrals).values({
             affiliateId: aff.id, userId: buyerId, kind: kind ?? s.mode,
             amountCents, commissionCents: Math.round(amountCents * rate),
             stripeEventId: event.id,
           }).onConflictDoNothing();
+          await checkAccelerator(aff);
         }
       }
     }
@@ -258,7 +310,16 @@ keystone.post("/api/stripe/webhook", async (c) => {
     event.type === "customer.subscription.updated" ||
     event.type === "customer.subscription.deleted"
   ) {
-    await syncSubscription(event.data.object as Stripe.Subscription);
+    const sub = event.data.object as Stripe.Subscription;
+    await syncSubscription(sub);
+    // A canceled/ended Partner subscription removes Partner access and drops the affiliate tier.
+    if (sub.status === "canceled" || event.type === "customer.subscription.deleted") {
+      const [pa] = await db.select().from(partnerAccess).where(eq(partnerAccess.stripeSubscriptionId, sub.id));
+      if (pa) {
+        await db.delete(partnerAccess).where(eq(partnerAccess.userId, pa.userId));
+        await db.update(affiliates).set({ tier: "affiliate" }).where(eq(affiliates.userId, pa.userId));
+      }
+    }
   }
   return c.json({ received: true });
 });
@@ -291,7 +352,7 @@ keystone.post("/api/affiliates/join", requireUser, async (c) => {
   return c.json({ ...row, link: `${APP_URL}/r/${row.code}` }, 201);
 });
 
-/** My affiliate dashboard data. */
+/** My affiliate dashboard data, including tier ladder and accelerator progress. */
 keystone.get("/api/affiliates/me", requireUser, async (c) => {
   const [aff] = await db.select().from(affiliates).where(eq(affiliates.userId, c.get("user").id));
   if (!aff) return c.json({ affiliate: null });
@@ -299,14 +360,30 @@ keystone.get("/api/affiliates/me", requireUser, async (c) => {
     n: sql<number>`count(*)`,
     earned: sql<number>`coalesce(sum(${referrals.commissionCents}),0)`,
     paid: sql<number>`coalesce(sum(case when ${referrals.payoutStatus} = 'paid' then ${referrals.commissionCents} else 0 end),0)`,
+    revenue: sql<number>`coalesce(sum(${referrals.amountCents}),0)`,
   }).from(referrals).where(eq(referrals.affiliateId, aff.id));
   const recent = await db.select().from(referrals)
     .where(eq(referrals.affiliateId, aff.id)).orderBy(desc(referrals.createdAt)).limit(20);
-  const rate = aff.tier === "partner" ? PARTNER_RATE : AFFILIATE_RATE;
+  const rate = await affiliateRateFor(aff);
+  const revenueCents = stats?.revenue ?? 0;
+  const nextTier = aff.tier === "partner" || aff.elite ? null
+    : [...AFFILIATE_TIERS].reverse().find((t) => revenueCents < t.atCents) ?? null;
+  const daysSinceJoin = (Date.now() - new Date(aff.createdAt).getTime()) / 86400000;
+  const accelerator = aff.tier === "partner" ? null : {
+    elite: !!aff.elite,
+    daysLeft: Math.max(0, Math.ceil(ACCELERATOR_DAYS - daysSinceJoin)),
+    targetCents: ACCELERATOR_CENTS,
+    revenueCents,
+    qualified: !!aff.elite,
+  };
   return c.json({
     affiliate: { ...aff, link: `${APP_URL}/r/${aff.code}`, rate },
-    stats: { referrals: stats?.n ?? 0, earnedCents: stats?.earned ?? 0, paidCents: stats?.paid ?? 0 },
-    recent,
+    stats: { referrals: stats?.n ?? 0, earnedCents: stats?.earned ?? 0, paidCents: stats?.paid ?? 0, revenueCents },
+    tiers: [
+      { rate: 0.30, atCents: 0, label: "Starter" },
+      ...[...AFFILIATE_TIERS].reverse().map((t) => ({ rate: t.rate, atCents: t.atCents, label: `$${(t.atCents / 100).toLocaleString()}+ referred` })),
+    ],
+    nextTier, accelerator, recent,
   });
 });
 
@@ -471,6 +548,20 @@ keystone.post("/api/funnel-leads/:id/claim", requireUser, requireSub, async (c) 
   return c.json(p, 201);
 });
 
+/** Partners (and the owner) can pitch product ideas. Submitting an idea conveys no ownership or rights. */
+keystone.post("/api/ideas", requireUser, async (c) => {
+  const u = c.get("user");
+  const isOwner = u.email === OWNER_EMAIL;
+  const [aff] = await db.select().from(affiliates).where(eq(affiliates.userId, u.id));
+  if (!isOwner && !(aff?.tier === "partner" && aff.status === "active"))
+    return c.json({ error: "Ideas are open to partners." }, 403);
+  const { title, body } = await c.req.json().catch(() => ({}));
+  if (!title?.trim() || !body?.trim() || String(title).length > 120 || String(body).length > 2000)
+    return c.json({ error: "Give your idea a title and a short description." }, 400);
+  const [row] = await db.insert(ideas).values({ userId: u.id, title: String(title).trim(), body: String(body).trim() }).returning();
+  return c.json({ idea: row });
+});
+
 /* ---------------- owner-only admin ---------------- */
 
 const admin = new Hono<Env>();
@@ -517,6 +608,15 @@ admin.post("/affiliates/:id/status", async (c) => {
   const { status } = await c.req.json().catch(() => ({}));
   if (!["active", "paused"].includes(status)) return c.json({ error: "Invalid status" }, 400);
   await db.update(affiliates).set({ status }).where(eq(affiliates.id, Number(c.req.param("id"))));
+  return c.json({ ok: true });
+});
+/** Partner-submitted ideas. */
+admin.get("/ideas", async (c) =>
+  c.json(await db.select().from(ideas).orderBy(desc(ideas.createdAt)).limit(100)));
+admin.post("/ideas/:id/status", async (c) => {
+  const { status } = await c.req.json().catch(() => ({}));
+  if (!["new", "reviewing", "shipped", "declined"].includes(status)) return c.json({ error: "Invalid status" }, 400);
+  await db.update(ideas).set({ status }).where(eq(ideas.id, Number(c.req.param("id"))));
   return c.json({ ok: true });
 });
 admin.get("/leads", async (c) => c.json(await db.select().from(leads).orderBy(desc(leads.createdAt))));

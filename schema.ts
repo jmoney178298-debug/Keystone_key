@@ -95,14 +95,15 @@ export const lifetimeAccess = sqliteTable("lifetime_access", {
   createdAt: createdAt(),
 });
 
-/** Partner (one-time $4,999 purchase) access. Stripe is the source of truth. */
+/** Partner (yearly subscription) access. Stripe is the source of truth. */
 export const partnerAccess = sqliteTable("partner_access", {
   userId: text("user_id").primaryKey(),
   stripeCustomerId: text("stripe_customer_id").notNull(),
+  stripeSubscriptionId: text("stripe_subscription_id"),
   createdAt: createdAt(),
 });
 
-/** Affiliates: users who refer buyers. Partners are affiliates with tier='partner' (50% vs 30%). */
+/** Affiliates: users who refer buyers. Partners are affiliates with tier='partner' (40%). */
 export const affiliates = sqliteTable("affiliates", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   userId: text("user_id").notNull().unique(),
@@ -112,6 +113,19 @@ export const affiliates = sqliteTable("affiliates", {
   tier: text("tier").notNull().default("affiliate"),
   /** active | paused */
   status: text("status").notNull().default("active"),
+  /** 1 = unlocked the 90-day accelerator (50% rate, kept permanently) */
+  elite: integer("elite").notNull().default(0),
+  createdAt: createdAt(),
+});
+
+/** Partner-submitted product ideas. Ideas become the property of the business; submitting conveys no ownership. */
+export const ideas = sqliteTable("ideas", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  userId: text("user_id").notNull(),
+  title: text("title").notNull(),
+  body: text("body").notNull(),
+  /** new | reviewing | shipped | declined */
+  status: text("status").notNull().default("new"),
   createdAt: createdAt(),
 });
 
