@@ -11,7 +11,7 @@ import Stripe from "stripe";
 import crypto from "node:crypto";
 import { db } from "./db";
 import { auth } from "./auth";
-import { affiliates, aiUsage, funnels, funnelLeads, hotLeads, leads, lifetimeAccess, partnerAccess, prospects, referrals, stripeEvents, subscriptions } from "./schema";
+import { affiliates, aiUsage, funnels, funnelLeads, leads, lifetimeAccess, partnerAccess, prospects, referrals, stripeEvents, subscriptions } from "./schema";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
 const OWNER_EMAIL = (process.env.OWNER_EMAIL ?? "").trim().toLowerCase();
@@ -310,56 +310,8 @@ keystone.get("/api/affiliates/me", requireUser, async (c) => {
   });
 });
 
-/* ---------------- hot leads (subscribers) ---------------- */
-
-export const SIGNALS = ["no_website", "not_mobile", "no_https", "old_copyright", "dated_look", "no_contact_form"] as const;
+/* Shared string cleaner. */
 const clean = (v: unknown, max = 300) => (typeof v === "string" && v.trim() ? v.trim().slice(0, max) : null);
-const scoreOf = (signals: unknown) =>
-  Array.isArray(signals) ? [...new Set(signals.filter((s) => (SIGNALS as readonly string[]).includes(s)))] : [];
-
-keystone.get("/api/hot-leads", requireUser, requireSub, async (c) => {
-  const rows = await db.select().from(hotLeads).where(eq(hotLeads.userId, c.get("user").id)).orderBy(desc(hotLeads.score), desc(hotLeads.createdAt));
-  return c.json(rows.map((r) => ({ ...r, hot: r.score >= 4 })));
-});
-
-keystone.post("/api/hot-leads", requireUser, requireSub, async (c) => {
-  const b = await c.req.json().catch(() => ({}));
-  const businessName = clean(b.businessName, 120);
-  if (!businessName) return c.json({ error: "businessName is required" }, 400);
-  const signals = scoreOf(b.signals);
-  const [row] = await db.insert(hotLeads).values({
-    userId: c.get("user").id,
-    businessName,
-    contactName: clean(b.contactName),
-    email: clean(b.email),
-    phone: clean(b.phone, 40),
-    website: clean(b.website, 500),
-    industry: clean(b.industry, 80),
-    city: clean(b.city, 80),
-    signals,
-    score: signals.length,
-  }).returning();
-  return c.json(row, 201);
-});
-
-keystone.delete("/api/hot-leads/:id", requireUser, requireSub, async (c) => {
-  await db.delete(hotLeads).where(and(eq(hotLeads.id, Number(c.req.param("id"))), eq(hotLeads.userId, c.get("user").id)));
-  return c.json({ ok: true });
-});
-
-/** Move a hot lead into the sales pipeline (prospects table). */
-keystone.post("/api/hot-leads/:id/promote", requireUser, requireSub, async (c) => {
-  const userId = c.get("user").id;
-  const [l] = await db.select().from(hotLeads).where(and(eq(hotLeads.id, Number(c.req.param("id"))), eq(hotLeads.userId, userId)));
-  if (!l) return c.json({ error: "Not found" }, 404);
-  const [p] = await db.insert(prospects).values({
-    userId, businessName: l.businessName, contactName: l.contactName, email: l.email, phone: l.phone,
-    website: l.website, industry: l.industry, city: l.city, stage: "new",
-    notes: `Hot lead score ${l.score}/6: ${l.signals.join(", ") || "none"}`,
-  }).returning();
-  await db.update(hotLeads).set({ status: "promoted", updatedAt: new Date() }).where(eq(hotLeads.id, l.id));
-  return c.json(p, 201);
-});
 
 /* ---------------- funnels: AI-generated lead capture pages ---------------- */
 
@@ -415,17 +367,8 @@ footer{padding:22px 5vw;font-size:13px;color:#5B6475}
 
 /** Shared daily-AI-limit check. Returns an error response or null when OK. */
 async function aiLimitHit(c: any) {
-  if (c.get("isAdmin")) return null;
-  const [s] = await db.select().from(subscriptions).where(eq(subscriptions.userId, c.get("user").id));
-  const [life] = await db.select().from(lifetimeAccess).where(eq(lifetimeAccess.userId, c.get("user").id));
-  const plan = life ? "lifetime" : s?.plan ?? "basic";
-  const limit = DAILY_LIMIT[plan] ?? 20;
-  const day = new Date().toISOString().slice(0, 10);
-  const [u] = await db.select().from(aiUsage).where(and(eq(aiUsage.userId, c.get("user").id), eq(aiUsage.day, day)));
-  if ((u?.n ?? 0) >= limit) return c.json({ error: `Daily AI limit reached (${limit}). It resets tomorrow, or upgrade your plan.` }, 429);
-  await db.insert(aiUsage).values({ userId: c.get("user").id, day, n: 1 })
-    .onConflictDoUpdate({ target: [aiUsage.userId, aiUsage.day], set: { n: sql`${aiUsage.n} + 1` } });
-  return null;
+  const q = await aiQuota(c.get("user").id, c.get("isAdmin"));
+  return q.ok ? null : c.json({ error: q.error }, 429);
 }
 
 /** One-click funnel generation: industry in, hosted landing page out. */
@@ -434,39 +377,14 @@ keystone.post("/api/funnels/generate", requireUser, requireSub, async (c) => {
   const industry = clean(b.industry, 80);
   const business = clean(b.business, 120) || industry;
   if (!industry) return c.json({ error: "industry is required" }, 400);
-  if (!process.env.ANTHROPIC_API_KEY) return c.json({ error: "AI is not configured yet." }, 503);
   const blocked = await aiLimitHit(c);
   if (blocked) return blocked;
-  let data: any;
   try {
-    const r = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: { "x-api-key": process.env.ANTHROPIC_API_KEY!, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-      body: JSON.stringify({
-        model: AI_MODEL, max_tokens: 2500,
-        system: SYSTEM.funnel,
-        messages: [{ role: "user", content: `Industry: ${industry}\nBusiness name: ${business}` }],
-      }),
-    });
-    if (!r.ok) return c.json({ error: "The AI service had a problem. Try again in a moment." }, 502);
-    const j: any = await r.json();
-    const text = (j.content ?? []).filter((x: any) => x.type === "text").map((x: any) => x.text).join("\n").trim();
-    data = JSON.parse(text);
-  } catch {
-    return c.json({ error: "Could not generate the funnel. Try again." }, 502);
+    const { row, url } = await aiFunnelData(c.get("user").id, industry, business);
+    return c.json({ ...row, url }, 201);
+  } catch (e: any) {
+    return c.json({ error: e?.error || "Could not generate the funnel. Try again." }, e?.status ?? 502);
   }
-  if (!data || typeof data.headline !== "string") return c.json({ error: "The AI returned an unusable funnel. Try again." }, 502);
-  const slug = await uniqueSlug(`${business} ${industry}`);
-  const html = renderFunnelPage({
-    title: String(data.title || business), headline: data.headline, subhead: String(data.subhead || ""),
-    cta: String(data.cta || "Get started"), bullets: data.bullets || [], sections: data.sections || [],
-    formTitle: String(data.formTitle || "Get your free quote"),
-  }, slug);
-  const [row] = await db.insert(funnels).values({
-    userId: c.get("user").id, slug, industry, title: String(data.title || business),
-    html, adAngles: data.adAngles ?? {}, status: "draft",
-  }).returning();
-  return c.json({ ...row, url: `${APP_URL}/f/${slug}` }, 201);
 });
 
 keystone.get("/api/funnels", requireUser, requireSub, async (c) => {
@@ -560,10 +478,9 @@ admin.use("*", requireUser, requireAdmin);
 
 admin.get("/overview", async (c) => {
   const subs = await db.select({ status: subscriptions.status, n: sql<number>`count(*)` }).from(subscriptions).groupBy(subscriptions.status);
-  const [hot] = await db.select({ n: sql<number>`count(*)` }).from(hotLeads);
   const [inbound] = await db.select({ n: sql<number>`count(*)` }).from(leads).where(eq(leads.status, "new"));
   const [won] = await db.select({ total: sql<number>`coalesce(sum(${prospects.dealValue}),0)` }).from(prospects).where(eq(prospects.stage, "won"));
-  return c.json({ subscribers: subs, hotLeads: hot.n, newInboundLeads: inbound.n, wonRevenue: won.total });
+  return c.json({ subscribers: subs, newInboundLeads: inbound.n, wonRevenue: won.total });
 });
 
 admin.get("/subscribers", async (c) => c.json(await db.select().from(subscriptions).orderBy(desc(subscriptions.updatedAt))));
@@ -602,7 +519,6 @@ admin.post("/affiliates/:id/status", async (c) => {
   await db.update(affiliates).set({ status }).where(eq(affiliates.id, Number(c.req.param("id"))));
   return c.json({ ok: true });
 });
-admin.get("/hot-leads", async (c) => c.json(await db.select().from(hotLeads).orderBy(desc(hotLeads.score), desc(hotLeads.createdAt))));
 admin.get("/leads", async (c) => c.json(await db.select().from(leads).orderBy(desc(leads.createdAt))));
 admin.patch("/leads/:id", async (c) => {
   const { status } = await c.req.json().catch(() => ({}));
@@ -614,70 +530,246 @@ admin.patch("/leads/:id", async (c) => {
 keystone.route("/api/admin", admin);
 
 
-/* ---------------- AI module (subscribers) ---------------- */
+/* ---------------- AI: all-in-one assistant + funnel generation (subscribers) ---------------- */
 
-const DAILY_LIMIT: Record<string, number> = { basic: 20, pro: 100, proplus: 300 };
+const DAILY_LIMIT: Record<string, number> = { basic: 20, pro: 100, proplus: 300, lifetime: 300 };
 const AI_MODEL = process.env.AI_MODEL ?? "claude-sonnet-5-5";
 const JSON_ONLY = "Return ONLY valid JSON, no markdown fences, no commentary. ";
 const NO_HYPE = "Do not promise rankings, guaranteed results, lower ad costs, or exclusivity. Keep claims honest and specific. ";
-const SYSTEM: Record<string, string> = {
-  leads: JSON_ONLY + "You find sales leads for a small web design agency. Use web search to find REAL local businesses matching the request that appear to have no website, a dated or broken website, or only a social media page. Use only publicly listed business information. Return a JSON array (max 8) of {\"name\",\"website\",\"city\",\"why\",\"contact\"}. \"why\" must name the specific weakness you observed. Never invent businesses or contact details; use an empty string when unknown.",
-  ads: JSON_ONLY + NO_HYPE + "Write ads for the request. Return {\"google\":{\"headlines\":[3 to 5 strings, max 30 characters each],\"descriptions\":[2 strings, max 90 characters each]},\"facebook\":\"\",\"instagram\":\"\",\"linkedin\":\"\",\"email\":{\"subject\":\"\",\"body\":\"\"}}.",
-  video: JSON_ONLY + NO_HYPE + "Plan a 15 to 45 second vertical video ad. You write the plan; you cannot render video. Return {\"title\",\"hook\",\"shots\":[{\"scene\",\"visual\",\"voiceover\",\"seconds\"}],\"captions\",\"cta\"}.",
-  design: JSON_ONLY + "You restyle a small business website. The context holds the current brief. Return {\"primary\":\"#rrggbb\",\"ink\":\"#rrggbb\",\"surface\":\"#rrggbb\",\"tagline\":\"\",\"services\":\"comma separated list or empty string\",\"note\":\"one sentence on what changed\"}. Use ink as a dark text/nav color, surface as a light page background, and a primary that keeps white text readable.",
-  coach: NO_HYPE + "You are the personal business assistant for the owner of AIU, a small business that sells AI-built websites, ads and leads tools, subscriptions, and white-label copies. Give short, concrete, step-by-step help and a realistic daily plan to earn money. Use the owner's numbers in the context. The app has these tabs: AI, Studio (build sites), Leads (find and score businesses), Pipeline (prospects and cold email sequences), Listings (ad copy), Publish (put client sites live), Revenue, Earn (payment links), Admin (subscribers and demo requests), Settings. Point to the right tab for each step. Never promise income or results. Remind the owner to follow email and advertising laws and to verify leads before contacting them. Keep answers under 250 words unless asked for more.",
-  write: NO_HYPE + "You write clear, friendly website and marketing copy for small businesses. Reply with the copy only.",
-  funnel: JSON_ONLY + NO_HYPE + "You build a lead-capture funnel for a local service business. The user gives an industry and business name. Return {\"title\",\"headline\",\"subhead\",\"cta\",\"bullets\":[4 to 6 short benefit strings],\"sections\":[exactly 3 objects {\"h\",\"p\"}],\"formTitle\",\"adAngles\":{\"google\":{\"headlines\":[3 to 5 strings, max 30 characters each],\"descriptions\":[2 strings, max 90 characters each]},\"facebook\":string}}. Copy must be honest and specific: no fake testimonials, no invented statistics, no guaranteed outcomes.",
-};
 
-keystone.post("/api/ai", requireUser, requireSub, async (c) => {
-  const body = await c.req.json().catch(() => ({}));
-  const mode = String(body.mode ?? "");
-  const prompt = String(body.prompt ?? "").trim().slice(0, 1500);
-  const context = String(body.context ?? "").slice(0, 3000);
-  const history: { role: "user" | "assistant"; content: string }[] =
-    mode === "coach" && Array.isArray(body.history)
-      ? body.history.filter((m: any) => (m?.role === "user" || m?.role === "assistant") && typeof m.content === "string")
-          .slice(-8).map((m: any) => ({ role: m.role, content: m.content.slice(0, 1500) }))
-      : [];
-  while (history.length && history[0].role === "assistant") history.shift();
-  if (!SYSTEM[mode] || !prompt) return c.json({ error: "Pick a mode and enter a prompt." }, 400);
-  if (!process.env.ANTHROPIC_API_KEY) return c.json({ error: "AI is not configured yet. The owner must add ANTHROPIC_API_KEY." }, 503);
+/** Charge one AI request against the user's daily quota. Admin is unlimited. */
+async function aiQuota(userId: string, isAdmin: boolean): Promise<{ ok: boolean; error?: string }> {
+  if (isAdmin) return { ok: true };
+  const [s] = await db.select().from(subscriptions).where(eq(subscriptions.userId, userId));
+  const [life] = await db.select().from(lifetimeAccess).where(eq(lifetimeAccess.userId, userId));
+  const plan = life ? "lifetime" : s?.plan ?? "basic";
+  const limit = DAILY_LIMIT[plan] ?? 20;
+  const day = new Date().toISOString().slice(0, 10);
+  const [u] = await db.select().from(aiUsage).where(and(eq(aiUsage.userId, userId), eq(aiUsage.day, day)));
+  if ((u?.n ?? 0) >= limit) return { ok: false, error: `Daily AI limit reached (${limit}). It resets tomorrow, or upgrade your plan.` };
+  await db.insert(aiUsage).values({ userId, day, n: 1 })
+    .onConflictDoUpdate({ target: [aiUsage.userId, aiUsage.day], set: { n: sql`${aiUsage.n} + 1` } });
+  return { ok: true };
+}
 
-  const user = c.get("user");
-  if (!c.get("isAdmin")) {
-    const [s] = await db.select().from(subscriptions).where(eq(subscriptions.userId, user.id));
-    const limit = DAILY_LIMIT[s?.plan ?? "basic"] ?? 20;
-    const day = new Date().toISOString().slice(0, 10);
-    const [u] = await db.select().from(aiUsage).where(and(eq(aiUsage.userId, user.id), eq(aiUsage.day, day)));
-    if ((u?.n ?? 0) >= limit) return c.json({ error: `Daily AI limit reached (${limit}). It resets tomorrow, or upgrade your plan.` }, 429);
-    await db.insert(aiUsage).values({ userId: user.id, day, n: 1 })
-      .onConflictDoUpdate({ target: [aiUsage.userId, aiUsage.day], set: { n: sql`${aiUsage.n} + 1` } });
-  }
+const FUNNEL_SYSTEM = JSON_ONLY + NO_HYPE + "You build a lead-capture funnel for a local service business. The user gives an industry and business name. Return {\"title\",\"headline\",\"subhead\",\"cta\",\"bullets\":[4 to 6 short benefit strings],\"sections\":[exactly 3 objects {\"h\",\"p\"}],\"formTitle\",\"adAngles\":{\"google\":{\"headlines\":[3 to 5 strings, max 30 characters each],\"descriptions\":[2 strings, max 90 characters each]},\"facebook\":string}}. Copy must be honest and specific: no fake testimonials, no invented statistics, no guaranteed outcomes.";
 
+/** Generate funnel page data with the AI, store it, and return the row + URL. Throws { status, error }. */
+async function aiFunnelData(userId: string, industry: string, business: string) {
+  if (!process.env.ANTHROPIC_API_KEY) throw { status: 503, error: "AI is not configured yet." };
+  let data: any;
   try {
     const r = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
-      headers: { "x-api-key": process.env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+      headers: { "x-api-key": process.env.ANTHROPIC_API_KEY!, "anthropic-version": "2023-06-01", "content-type": "application/json" },
       body: JSON.stringify({
-        model: AI_MODEL,
-        max_tokens: 2500,
-        system: SYSTEM[mode],
-        messages: [...history, { role: "user", content: context ? `Context:\n${context}\n\nRequest:\n${prompt}` : prompt }],
-        ...(mode === "leads" ? { tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 4 }] } : {}),
+        model: AI_MODEL, max_tokens: 2500,
+        system: FUNNEL_SYSTEM,
+        messages: [{ role: "user", content: `Industry: ${industry}\nBusiness name: ${business}` }],
       }),
     });
-    if (!r.ok) {
-      console.error("AI error", r.status, (await r.text()).slice(0, 300));
-      return c.json({ error: "The AI service had a problem. Try again in a moment." }, 502);
-    }
-    const data: any = await r.json();
-    const text = (data.content ?? []).filter((b: any) => b.type === "text").map((b: any) => b.text).join("\n").trim();
-    return c.json({ mode, text });
-  } catch (e) {
-    console.error("AI failure", e);
-    return c.json({ error: "The AI service could not be reached." }, 502);
+    if (!r.ok) throw { status: 502, error: "The AI service had a problem. Try again in a moment." };
+    const j: any = await r.json();
+    const text = (j.content ?? []).filter((x: any) => x.type === "text").map((x: any) => x.text).join("\n").trim();
+    data = JSON.parse(text);
+  } catch (e: any) {
+    if (e?.status) throw e;
+    throw { status: 502, error: "Could not generate the funnel. Try again." };
   }
+  if (!data || typeof data.headline !== "string") throw { status: 502, error: "The AI returned an unusable funnel. Try again." };
+  const slug = await uniqueSlug(`${business} ${industry}`);
+  const html = renderFunnelPage({
+    title: String(data.title || business), headline: data.headline, subhead: String(data.subhead || ""),
+    cta: String(data.cta || "Get started"), bullets: data.bullets || [], sections: data.sections || [],
+    formTitle: String(data.formTitle || "Get your free quote"),
+  }, slug);
+  const [row] = await db.insert(funnels).values({
+    userId, slug, industry, title: String(data.title || business),
+    html, adAngles: data.adAngles ?? {}, status: "draft",
+  }).returning();
+  return { row, url: `${APP_URL}/f/${slug}` };
+}
+
+const ASSISTANT_SYSTEM = `You are the AIU assistant, an all-in-one AI helper inside the AIU app. You help the user:
+- build lead-capture funnels (use the generate_funnel tool, then offer to publish it with set_funnel_status),
+- manage their funnels and leads (list_funnels, list_leads, claim_lead, list_prospects),
+- check their plan and referral program (billing_status, affiliate_info),
+- and build anything else they can think of: websites, landing pages, apps, tools, emails, copy, plans, code. You can also edit and improve things they already have.
+
+Rules:
+- Be direct and useful. Short answers unless detail is asked for.
+- When the user asks you to build a website, page, app, or tool, output ONE complete self-contained HTML file (inline CSS and JS, no build step, no external dependencies except Google Fonts if needed) inside a fenced block that starts with \`\`\`html-artifact and ends with \`\`\`. Nothing else may be inside that block. Before or after it, briefly say what you built and how to use it.
+- When the user asks to change something in their current project, output the FULL updated file again in a new \`\`\`html-artifact block, never a diff.
+- Never invent businesses, contact details, testimonials, or statistics. Never promise rankings, guaranteed results, or income.
+- When you claim a lead, tell the user it moved to their Pipeline and left the available pool.
+- If a tool fails, say what happened in plain words and suggest the next step.`;
+
+const ASSISTANT_TOOLS: any[] = [
+  { name: "generate_funnel", description: "Generate an AI lead-capture funnel page for an industry and business name. Saves it as a draft and returns its id, title and shareable URL.", input_schema: { type: "object", properties: { industry: { type: "string", description: "e.g. roofers, plumbers, dentists" }, business: { type: "string", description: "Business name (optional)" } }, required: ["industry"] } },
+  { name: "list_funnels", description: "List the user's funnels: id, title, industry, status (draft/live), url, updated date.", input_schema: { type: "object", properties: {} } },
+  { name: "set_funnel_status", description: "Publish a funnel (status live) or unpublish it (status draft) by id.", input_schema: { type: "object", properties: { id: { type: "number" }, status: { type: "string", enum: ["live", "draft"] } }, required: ["id", "status"] } },
+  { name: "delete_funnel", description: "Permanently delete a funnel and its captured leads by id.", input_schema: { type: "object", properties: { id: { type: "number" } }, required: ["id"] } },
+  { name: "list_leads", description: "List available (unclaimed) leads captured through the user's funnels.", input_schema: { type: "object", properties: {} } },
+  { name: "claim_lead", description: "Claim a lead by id: moves it into the Pipeline as a prospect and removes it from the available leads pool.", input_schema: { type: "object", properties: { id: { type: "number" } }, required: ["id"] } },
+  { name: "list_prospects", description: "List the user's pipeline prospects with their stage.", input_schema: { type: "object", properties: {} } },
+  { name: "billing_status", description: "Check the user's plan, subscription status and whether the account is active.", input_schema: { type: "object", properties: {} } },
+  { name: "affiliate_info", description: "Get the user's affiliate referral link, commission rate and earnings.", input_schema: { type: "object", properties: {} } },
+];
+
+/** Execute one assistant tool call. Always returns a JSON-able object (never throws). */
+async function runAssistantTool(name: string, input: any, userId: string): Promise<any> {
+  try {
+    switch (name) {
+      case "generate_funnel": {
+        const industry = clean(input?.industry, 80);
+        if (!industry) return { error: "I need an industry to build the funnel." };
+        const business = clean(input?.business, 120) || industry;
+        try {
+          const { row, url } = await aiFunnelData(userId, industry, business);
+          return { id: row.id, title: row.title, industry: row.industry, status: row.status, url };
+        } catch (e: any) { return { error: e?.error || "Could not generate the funnel." }; }
+      }
+      case "list_funnels": {
+        const rows = await db.select().from(funnels).where(eq(funnels.userId, userId)).orderBy(desc(funnels.updatedAt));
+        return rows.map((r) => ({ id: r.id, title: r.title, industry: r.industry, status: r.status, url: `${APP_URL}/f/${r.slug}` }));
+      }
+      case "set_funnel_status": {
+        const id = Number(input?.id);
+        const status = input?.status === "live" ? "live" : "draft";
+        const [f] = await db.select().from(funnels).where(and(eq(funnels.id, id), eq(funnels.userId, userId)));
+        if (!f) return { error: "Funnel not found." };
+        await db.update(funnels).set({ status, updatedAt: new Date() }).where(eq(funnels.id, id));
+        return { ok: true, id, status, url: `${APP_URL}/f/${f.slug}` };
+      }
+      case "delete_funnel": {
+        const id = Number(input?.id);
+        await db.delete(funnelLeads).where(and(eq(funnelLeads.funnelId, id), eq(funnelLeads.userId, userId)));
+        await db.delete(funnels).where(and(eq(funnels.id, id), eq(funnels.userId, userId)));
+        return { ok: true, id };
+      }
+      case "list_leads": {
+        const rows = await db.select().from(funnelLeads)
+          .where(and(eq(funnelLeads.userId, userId), eq(funnelLeads.status, "new")))
+          .orderBy(desc(funnelLeads.createdAt)).limit(50);
+        const titles = new Map<number, string>();
+        for (const fid of [...new Set(rows.map((r) => r.funnelId))]) {
+          const [f] = await db.select().from(funnels).where(eq(funnels.id, fid));
+          if (f) titles.set(fid, f.title);
+        }
+        return rows.map((r) => ({ id: r.id, name: r.name, email: r.email, phone: r.phone, city: r.city, state: r.state, funnel: titles.get(r.funnelId) ?? "" }));
+      }
+      case "claim_lead": {
+        const id = Number(input?.id);
+        const [l] = await db.select().from(funnelLeads)
+          .where(and(eq(funnelLeads.id, id), eq(funnelLeads.userId, userId), eq(funnelLeads.status, "new")));
+        if (!l) return { error: "Lead not found or already claimed." };
+        const [f] = await db.select().from(funnels).where(eq(funnels.id, l.funnelId));
+        const [p] = await db.insert(prospects).values({
+          userId, businessName: l.name, contactName: l.name, email: l.email, phone: l.phone,
+          city: l.city, industry: f?.industry ?? null, stage: "new",
+          notes: `Claimed from funnel "${f?.title ?? ""}".`,
+        }).returning();
+        await db.update(funnelLeads).set({ status: "claimed" }).where(eq(funnelLeads.id, l.id));
+        return { ok: true, prospect: { id: p.id, name: p.businessName, email: p.email, stage: p.stage } };
+      }
+      case "list_prospects": {
+        const rows = await db.select().from(prospects).where(eq(prospects.userId, userId)).orderBy(desc(prospects.updatedAt)).limit(50);
+        return rows.map((r) => ({ id: r.id, name: r.businessName, contact: r.contactName, email: r.email, phone: r.phone, stage: r.stage, dealValue: r.dealValue }));
+      }
+      case "billing_status": {
+        const [s] = await db.select().from(subscriptions).where(eq(subscriptions.userId, userId));
+        const [life] = await db.select().from(lifetimeAccess).where(eq(lifetimeAccess.userId, userId));
+        const [part] = await db.select().from(partnerAccess).where(eq(partnerAccess.userId, userId));
+        return { plan: part ? "partner" : life ? "lifetime" : s?.plan ?? "none", status: s?.status ?? (life || part ? "active" : "none"), lifetime: !!life, partner: !!part };
+      }
+      case "affiliate_info": {
+        const [aff] = await db.select().from(affiliates).where(eq(affiliates.userId, userId));
+        if (!aff) return { joined: false, message: "Not in the affiliate program yet. Join from the Affiliates tab." };
+        const [stats] = await db.select({ n: sql<number>`count(*)`, earned: sql<number>`coalesce(sum(${referrals.commissionCents}),0)` }).from(referrals).where(eq(referrals.affiliateId, aff.id));
+        return { joined: true, link: `${APP_URL}/r/${aff.code}`, rate: aff.tier === "partner" ? "50%" : "30%", referrals: stats?.n ?? 0, earnedCents: stats?.earned ?? 0 };
+      }
+      default:
+        return { error: `Unknown tool: ${name}` };
+    }
+  } catch (e: any) {
+    return { error: e?.message || "Tool failed." };
+  }
+}
+
+/** Chat with the all-in-one assistant. One AI request is charged per user turn. */
+keystone.post("/api/assistant/chat", requireUser, requireSub, async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  const user = c.get("user");
+  const incoming = Array.isArray(body.messages) ? body.messages : [];
+  const messages: any[] = incoming
+    .filter((m: any) => (m?.role === "user" || m?.role === "assistant") && typeof m?.content === "string" && m.content.trim())
+    .slice(-20)
+    .map((m: any) => ({ role: m.role, content: m.content.slice(0, 4000) }));
+  if (!messages.length || messages[messages.length - 1].role !== "user")
+    return c.json({ error: "Send a message to the assistant." }, 400);
+  if (!process.env.ANTHROPIC_API_KEY) return c.json({ error: "AI is not configured yet." }, 503);
+  const quota = await aiQuota(user.id, c.get("isAdmin"));
+  if (!quota.ok) return c.json({ error: quota.error }, 429);
+
+  // Current project context, so "change the headline" edits the right code.
+  const art = body.artifact;
+  if (art && typeof art.code === "string" && art.code.length > 0 && art.code.length < 200000) {
+    const last = messages[messages.length - 1];
+    last.content += `\n\n[The user's current project is "${String(art.name || "untitled").slice(0, 80)}". Its full code is below. When they ask for changes, return the FULL updated file in a new html-artifact block.]\n\`\`\`html\n${art.code.slice(0, 120000)}\n\`\`\``;
+  }
+
+  const callAnthropic = async (msgs: any[]) => {
+    const r = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: { "x-api-key": process.env.ANTHROPIC_API_KEY!, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+      body: JSON.stringify({ model: AI_MODEL, max_tokens: 4000, system: ASSISTANT_SYSTEM, tools: ASSISTANT_TOOLS, messages: msgs }),
+    });
+    if (!r.ok) throw { status: 502, error: "The AI service had a problem. Try again in a moment." };
+    return r.json();
+  };
+
+  try {
+    let data: any = await callAnthropic(messages);
+    for (let i = 0; i < 5; i++) {
+      if (data.stop_reason !== "tool_use") break;
+      const toolUses = (data.content ?? []).filter((b: any) => b.type === "tool_use");
+      if (!toolUses.length) break;
+      const results = [];
+      for (const tu of toolUses) {
+        results.push({
+          type: "tool_result",
+          tool_use_id: tu.id,
+          content: JSON.stringify(await runAssistantTool(tu.name, tu.input ?? {}, user.id)).slice(0, 8000),
+        });
+      }
+      messages.push({ role: "assistant", content: data.content });
+      messages.push({ role: "user", content: results });
+      data = await callAnthropic(messages);
+    }
+    const text = (data.content ?? []).filter((b: any) => b.type === "text").map((b: any) => b.text).join("\n").trim();
+    return c.json({ reply: text || "I ran into trouble on that one. Try asking again in different words." });
+  } catch (e: any) {
+    console.error("assistant failure", e?.status || "", e?.error || e?.message || e);
+    return c.json({ error: e?.error || "The assistant could not be reached." }, e?.status ?? 502);
+  }
+});
+
+/** Today's AI usage for the chat UI. */
+keystone.get("/api/assistant/limits", requireUser, async (c) => {
+  const user = c.get("user");
+  const [s] = await db.select().from(subscriptions).where(eq(subscriptions.userId, user.id));
+  const [life] = await db.select().from(lifetimeAccess).where(eq(lifetimeAccess.userId, user.id));
+  const plan = life ? "lifetime" : s?.plan ?? "basic";
+  const limit = c.get("isAdmin") ? -1 : DAILY_LIMIT[plan] ?? 20;
+  const day = new Date().toISOString().slice(0, 10);
+  const [u] = await db.select().from(aiUsage).where(and(eq(aiUsage.userId, user.id), eq(aiUsage.day, day)));
+  return c.json({ plan, limit, used: u?.n ?? 0 });
+});
+
+/** My pipeline prospects (claimed leads live here). */
+keystone.get("/api/prospects", requireUser, requireSub, async (c) => {
+  const rows = await db.select().from(prospects).where(eq(prospects.userId, c.get("user").id)).orderBy(desc(prospects.updatedAt));
+  return c.json(rows);
 });
 
 

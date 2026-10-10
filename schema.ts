@@ -18,23 +18,6 @@ export const stripeEvents = sqliteTable("stripe_events", {
   createdAt: createdAt(),
 });
 
-export const hotLeads = sqliteTable("hot_leads", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
-  userId: text("user_id").notNull(),
-  businessName: text("business_name").notNull(),
-  contactName: text("contact_name"),
-  email: text("email"),
-  phone: text("phone"),
-  website: text("website"),
-  industry: text("industry"),
-  city: text("city"),
-  signals: text("signals", { mode: "json" }).$type<string[]>().notNull().default([]),
-  score: integer("score").notNull().default(0),
-  status: text("status").notNull().default("new"),
-  createdAt: createdAt(),
-  updatedAt: updatedAt(),
-});
-
 export const prospects = sqliteTable("prospects", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   userId: text("user_id").notNull(),
