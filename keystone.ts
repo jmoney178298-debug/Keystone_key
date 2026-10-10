@@ -707,7 +707,11 @@ async function aiFunnelData(userId: string, industry: string, business: string) 
         messages: [{ role: "user", content: `Industry: ${industry}\nBusiness name: ${business}` }],
       }),
     });
-    if (!r.ok) throw { status: 502, error: "The AI service had a problem. Try again in a moment." };
+    if (!r.ok) {
+      const bodyText = await r.text().catch(() => "");
+      console.error("anthropic upstream", r.status, bodyText.slice(0, 500));
+      throw { status: 502, error: "The AI service had a problem. Try again in a moment." };
+    }
     const j: any = await r.json();
     const text = (j.content ?? []).filter((x: any) => x.type === "text").map((x: any) => x.text).join("\n").trim();
     data = JSON.parse(text);
@@ -863,7 +867,11 @@ keystone.post("/api/assistant/chat", requireUser, requireSub, async (c) => {
       headers: { "x-api-key": process.env.ANTHROPIC_API_KEY!, "anthropic-version": "2023-06-01", "content-type": "application/json" },
       body: JSON.stringify({ model: AI_MODEL, max_tokens: 4000, system: ASSISTANT_SYSTEM, tools: ASSISTANT_TOOLS, messages: msgs }),
     });
-    if (!r.ok) throw { status: 502, error: "The AI service had a problem. Try again in a moment." };
+    if (!r.ok) {
+      const bodyText = await r.text().catch(() => "");
+      console.error("anthropic upstream", r.status, bodyText.slice(0, 500));
+      throw { status: 502, error: "The AI service had a problem. Try again in a moment." };
+    }
     return r.json();
   };
 
