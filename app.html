@@ -41,7 +41,7 @@ h1,h2,.stat,.logo,.price{letter-spacing:-.035em}h1 i,h2 i{font-style:normal;colo
 <nav class="side" id="side"></nav><main id="main"></main>
 <script>
 const $=s=>document.querySelector(s);
-const MODS={ai:['AI','var(--volt)','#6945FE'],studio:['Studio','var(--volt)','#6945FE'],leads:['Leads','var(--blaze)','#FD5A13'],pipeline:['Pipeline','var(--blaze)','#FD5A13'],ads:['Listings','var(--lime)','#CBE13B'],funnels:['Funnels','var(--lime)','#19E6B4'],revenue:['Revenue','var(--lime)','#CBE13B'],publish:['Publish','var(--volt)','#4F5BFF'],settings:['Settings','var(--lilac)','#B97AFD']};
+const MODS={ai:['AI','var(--volt)','#6945FE'],studio:['Studio','var(--volt)','#6945FE'],leads:['Leads','var(--blaze)','#FD5A13'],pipeline:['Pipeline','var(--blaze)','#FD5A13'],ads:['Listings','var(--lime)','#CBE13B'],funnels:['Funnels','var(--lime)','#19E6B4'],aff:['Affiliates','var(--lime)','#19E6B4'],revenue:['Revenue','var(--lime)','#CBE13B'],publish:['Publish','var(--volt)','#4F5BFF'],settings:['Settings','var(--lilac)','#B97AFD']};
 let db={prospects:[],sites:[],set:{agency:'Ltronics PowerHouse',pay:'https://buy.stripe.com/aFa5kCgV0gvq5Qv0rG8k801',sub:'https://buy.stripe.com/dRm00ifQWcfadiXgqE8k803',price:799,mo:39,pass:''}};
 try{const s=localStorage.getItem('keystone');if(s)db=Object.assign(db,JSON.parse(s))}catch(e){}
 const save=()=>{try{localStorage.setItem('keystone',JSON.stringify(db))}catch(e){}};
@@ -101,8 +101,8 @@ function render(){
   if(db.set.pass&&!window._ok){lock();return}
   const m=MODS[view];$('#side').innerHTML='<div class="logo">AI<i>U</i></div>'+Object.keys(MODS).map(k=>`<button class="nav ${k==view?'on':''}" ${k==view?`style="background:${MODS[k][1]}"`:''} onclick="setView('${k}')">${MODS[k][0]}</button>`).join('');
   $('#main').style.setProperty('--tab',m[1]);
-  $('#main').innerHTML=({coach:vCoach,earn:vEarn,admin:vAdmin,ai:vAI,studio:vStudio,leads:vLeads,pipeline:vPipe,ads:vAds,funnels:vFunnels,revenue:vRev,publish:vPublish,settings:vSet})[view]();
-  if(view=='studio'&&cur)paint();if(view=='admin')admLoad();if(view=='funnels')funLoad();
+  $('#main').innerHTML=({coach:vCoach,earn:vEarn,admin:vAdmin,ai:vAI,studio:vStudio,leads:vLeads,pipeline:vPipe,ads:vAds,funnels:vFunnels,aff:vAff,revenue:vRev,publish:vPublish,settings:vSet})[view]();
+  if(view=='studio'&&cur)paint();if(view=='admin')admLoad();if(view=='funnels')funLoad();if(view=='aff')affLoad();
 }
 function fld(id,l,v,ph,t){return `<div><label for="${id}">${l}</label><input id="${id}" value="${esc(v)}" placeholder="${ph||''}" ${t||''}></div>`}
 function vStudio(){
@@ -197,6 +197,24 @@ async function genFunnel(){const ind=$('#fu_ind').value.trim();if(!ind){alert('E
 async function pubFunnel(id,status){await fetch('/api/funnels/'+id+'/publish',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({status})});funLoad()}
 async function delFunnel(id){if(!confirm('Delete this funnel and its leads?'))return;await fetch('/api/funnels/'+id,{method:'DELETE'});funLoad()}
 async function claimLead(id){const r=await fetch('/api/funnel-leads/'+id+'/claim',{method:'POST'});if(r.ok){funLoad();alert('Claimed — moved to your Pipeline.')}else{const j=await r.json().catch(()=>({}));alert(j.error||'Claim failed.')}}
+
+/* ---------- affiliates: referral link, earnings, partner upsell ---------- */
+function vAff(){const A=window._aff;
+  return `<div class="fade" style="--tab:var(--lime)"><h1>Affi<i>liates</i></h1><p class="sub">Share your link. Earn 30% of every sale you refer — paid out monthly once you hit $50.</p>
+  <div id="affbody">${A===undefined?'<div class="card">Loading...</div>':(A&&A.affiliate?affDash(A):affJoin())}</div></div>`}
+function affJoin(){return `<div class="card"><b>Join free</b><p style="color:var(--stone)">Get your personal referral link in one tap. Anyone who signs up through it is tracked for 60 days, and you earn 30% of every sale they make.</p><div class="row" style="margin-top:10px"><button class="btn acc" style="--c:var(--lime);color:var(--ink)" onclick="affDoJoin()">Get my referral link</button></div></div>`+affPartnerCard()}
+async function affDoJoin(){const r=await fetch('/api/affiliates/join',{method:'POST'});if(r.ok){affLoad()}else{const j=await r.json().catch(()=>({}));alert(j.error||'Could not join.')}}
+function affUsd(c){return '$'+(c/100).toFixed(2)}
+function affDash(A){const a=A.affiliate,s=A.stats;
+  return `<div class="card"><b>Your referral link ${a.tier=='partner'?'<span class="pill" style="background:var(--lime)">PARTNER · 50%</span>':'<span class="pill">30% rate</span>'}</b>
+  <div class="row" style="margin-top:10px"><input readonly value="${esc(a.link)}" onclick="this.select()" style="flex:1;min-width:200px"><button class="btn acc" style="--c:var(--lime);color:var(--ink)" onclick="cp('${esc(a.link)}')">Copy link</button></div>
+  <p class="sub" style="margin:8px 0 0">Anyone who buys through your link is tracked for 60 days.</p></div>
+  <div class="grid"><div class="card"><label>Referrals</label><div class="stat mono">${s.referrals}</div></div><div class="card"><label>Earned</label><div class="stat mono">${affUsd(s.earnedCents)}</div></div><div class="card"><label>Paid out</label><div class="stat mono">${affUsd(s.paidCents)}</div></div></div>
+  ${a.tier=='partner'?'':affPartnerCard()}
+  ${A.recent.length?`<div class="card"><b>Recent referrals</b>${A.recent.map(r=>`<div class="row" style="padding:8px 0;border-top:1px solid rgba(11,15,26,.08);justify-content:space-between"><span class="pill">${esc(r.kind)}</span><span class="mono">${affUsd(r.commissionCents)}</span><span class="pill">${esc(r.payoutStatus)}</span></div>`).join('')}</div>`:''}`}
+function affPartnerCard(){return `<div class="card" style="border:2px solid var(--lime)"><b>Become a Partner — $4,999 one-time</b><p style="color:var(--stone)">Partners earn <b>50% commission</b> on every referred sale instead of 30%, get partner status, and reseller rights to offer the system to their own clients.</p><div class="row" style="margin-top:10px"><button class="btn acc" style="--c:var(--lime);color:var(--ink)" onclick="buyPartner()">Become a partner</button></div></div>`}
+async function buyPartner(){const r=await fetch('/api/billing/partner',{method:'POST'});const j=await r.json().catch(()=>({}));if(r.ok&&j.url){location.href=j.url}else{alert(j.error||'Partner checkout is not set up yet.')}}
+async function affLoad(){try{const r=await fetch('/api/affiliates/me');window._aff=r.ok?await r.json():null;if(view=='aff')render()}catch(e){}}
 
 
 const AIM={leads:['Find leads','Roofers in Tampa with outdated websites'],ads:['Write ads','Google and Facebook ads for a Tampa roofing company'],video:['Video plan','30-second video ad for a roofing company'],design:['Change design','Make my open site dark blue and gold, more premium'],write:['Write copy','Rewrite the About page so it sounds friendlier']};

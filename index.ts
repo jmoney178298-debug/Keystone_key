@@ -5,7 +5,7 @@ import fs from "node:fs";
 import { auth } from "./auth";
 import { db } from "./db";
 import { keystone } from "./keystone";
-import { subscriptions } from "./schema";
+import { lifetimeAccess, partnerAccess, subscriptions } from "./schema";
 
 const OWNER = (process.env.OWNER_EMAIL ?? "").trim().toLowerCase();
 const app = new Hono();
@@ -20,8 +20,12 @@ app.get("/app", async (c) => {
   if (!session?.user) return c.redirect("/#login");
   const isOwner = OWNER !== "" && session.user.email.toLowerCase() === OWNER;
   if (!isOwner) {
-    const [s] = await db.select().from(subscriptions).where(eq(subscriptions.userId, session.user.id));
-    if (!s || !["active", "trialing"].includes(s.status)) return c.redirect("/#account");
+    const [part] = await db.select().from(partnerAccess).where(eq(partnerAccess.userId, session.user.id));
+    const [life] = await db.select().from(lifetimeAccess).where(eq(lifetimeAccess.userId, session.user.id));
+    if (!part && !life) {
+      const [s] = await db.select().from(subscriptions).where(eq(subscriptions.userId, session.user.id));
+      if (!s || !["active", "trialing"].includes(s.status)) return c.redirect("/#account");
+    }
   }
   c.header("Cache-Control", "no-store");
   return c.html(fs.readFileSync("app.html", "utf8"));

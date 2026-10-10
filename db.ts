@@ -26,6 +26,9 @@ CREATE TABLE IF NOT EXISTS leads (id integer PRIMARY KEY AUTOINCREMENT, name tex
 CREATE TABLE IF NOT EXISTS funnels (id integer PRIMARY KEY AUTOINCREMENT, user_id text NOT NULL, slug text NOT NULL UNIQUE, industry text NOT NULL, title text NOT NULL, html text NOT NULL, ad_angles text NOT NULL DEFAULT '{}', status text NOT NULL DEFAULT 'draft', created_at integer NOT NULL, updated_at integer NOT NULL);
 CREATE TABLE IF NOT EXISTS funnel_leads (id integer PRIMARY KEY AUTOINCREMENT, funnel_id integer NOT NULL, user_id text NOT NULL, name text NOT NULL, email text NOT NULL, phone text, city text, state text, ip text, status text NOT NULL DEFAULT 'new', created_at integer NOT NULL);
 CREATE TABLE IF NOT EXISTS lifetime_access (user_id text PRIMARY KEY, stripe_customer_id text NOT NULL, created_at integer NOT NULL);
+CREATE TABLE IF NOT EXISTS partner_access (user_id text PRIMARY KEY, stripe_customer_id text NOT NULL, created_at integer NOT NULL);
+CREATE TABLE IF NOT EXISTS affiliates (id integer PRIMARY KEY AUTOINCREMENT, user_id text NOT NULL UNIQUE, code text NOT NULL UNIQUE, tier text NOT NULL DEFAULT 'affiliate', status text NOT NULL DEFAULT 'active', created_at integer NOT NULL);
+CREATE TABLE IF NOT EXISTS referrals (id integer PRIMARY KEY AUTOINCREMENT, affiliate_id integer NOT NULL, user_id text NOT NULL, kind text NOT NULL, amount_cents integer NOT NULL, commission_cents integer NOT NULL, payout_status text NOT NULL DEFAULT 'pending', stripe_event_id text UNIQUE, created_at integer NOT NULL);
 `);
 
 export const db = drizzle(sqlite, { schema });

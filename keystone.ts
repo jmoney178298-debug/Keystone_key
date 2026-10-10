@@ -5,11 +5,13 @@
  * Mount with:  app.route("/", keystone)
  */
 import { Hono, type MiddlewareHandler } from "hono";
+import { getCookie, setCookie } from "hono/cookie";
 import { and, desc, eq, sql } from "drizzle-orm";
 import Stripe from "stripe";
+import crypto from "node:crypto";
 import { db } from "./db";
 import { auth } from "./auth";
-import { aiUsage, funnels, funnelLeads, hotLeads, leads, lifetimeAccess, prospects, stripeEvents, subscriptions } from "./schema";
+import { affiliates, aiUsage, funnels, funnelLeads, hotLeads, leads, lifetimeAccess, partnerAccess, prospects, referrals, stripeEvents, subscriptions } from "./schema";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
 const OWNER_EMAIL = (process.env.OWNER_EMAIL ?? "").trim().toLowerCase();
@@ -35,9 +37,11 @@ const requireAdmin: MiddlewareHandler<Env> = async (c, next) => {
   await next();
 };
 
-/** Paywall: owner always passes; lifetime buyers pass; everyone else needs an active or trialing subscription. */
+/** Paywall: owner always passes; partners and lifetime buyers pass; everyone else needs an active or trialing subscription. */
 const requireSub: MiddlewareHandler<Env> = async (c, next) => {
   if (c.get("isAdmin")) return next();
+  const [part] = await db.select().from(partnerAccess).where(eq(partnerAccess.userId, c.get("user").id));
+  if (part) return next();
   const [life] = await db.select().from(lifetimeAccess).where(eq(lifetimeAccess.userId, c.get("user").id));
   if (life) return next();
   const [s] = await db.select().from(subscriptions).where(eq(subscriptions.userId, c.get("user").id));
@@ -63,6 +67,39 @@ const PRICES: Record<string, string | undefined> = {
   proplus: process.env.STRIPE_PRICE_PROPLUS,
 };
 
+/* ---------------- affiliates: tracking + commissions ---------------- */
+
+const AFFILIATE_RATE = 0.30;
+const PARTNER_RATE = 0.50;
+const AFF_COOKIE = "aff_code";
+const AFF_COOKIE_DAYS = 60;
+
+function genAffCode() {
+  const chars = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"; // no look-alike chars
+  const buf = crypto.randomBytes(8);
+  let s = "";
+  for (let i = 0; i < 8; i++) s += chars[buf[i] % chars.length];
+  return s;
+}
+
+async function uniqueAffCode(): Promise<string> {
+  while (true) {
+    const code = genAffCode();
+    const [row] = await db.select({ id: affiliates.id }).from(affiliates).where(eq(affiliates.code, code));
+    if (!row) return code;
+  }
+}
+
+/** Affiliate code from the tracking cookie, validated: exists, active, and not the buyer's own. */
+async function referralCodeFor(c: { req: any }, buyerUserId: string): Promise<string | undefined> {
+  const code = getCookie(c as any, AFF_COOKIE);
+  if (!code) return undefined;
+  const [aff] = await db.select().from(affiliates)
+    .where(and(eq(affiliates.code, code), eq(affiliates.status, "active")));
+  if (!aff || aff.userId === buyerUserId) return undefined;
+  return code;
+}
+
 keystone.post("/api/billing/checkout", requireUser, async (c) => {
   const user = c.get("user");
   const { plan } = await c.req.json().catch(() => ({ plan: "pro" }));
@@ -70,11 +107,13 @@ keystone.post("/api/billing/checkout", requireUser, async (c) => {
   if (!price) return c.json({ error: "Unknown plan. Use basic, pro or proplus." }, 400);
   const [prev] = await db.select().from(subscriptions).where(eq(subscriptions.userId, user.id));
   const trialDays = prev?.stripeSubscriptionId ? 0 : Number(process.env.TRIAL_DAYS ?? 7); // one free trial per account
+  const affCode = await referralCodeFor(c, user.id);
   const session = await stripe.checkout.sessions.create({
     mode: "subscription",
     customer: await customerFor(user),
     line_items: [{ price, quantity: 1 }],
     client_reference_id: user.id,
+    metadata: { kind: "subscription", ...(affCode ? { affCode } : {}) },
     subscription_data: { metadata: { userId: user.id }, ...(trialDays > 0 ? { trial_period_days: trialDays } : {}) },
     allow_promotion_codes: true,
     success_url: `${APP_URL}/app/billing?status=success`,
@@ -99,11 +138,32 @@ keystone.post("/api/billing/lifetime", requireUser, async (c) => {
   if (!price) return c.json({ error: "Lifetime purchase is not configured yet." }, 400);
   const [life] = await db.select().from(lifetimeAccess).where(eq(lifetimeAccess.userId, c.get("user").id));
   if (life) return c.json({ error: "You already have lifetime access." }, 400);
+  const affCode = await referralCodeFor(c, c.get("user").id);
   const session = await stripe.checkout.sessions.create({
     mode: "payment",
     customer: await customerFor(c.get("user")),
     line_items: [{ price, quantity: 1 }],
     client_reference_id: c.get("user").id,
+    metadata: { kind: "lifetime", ...(affCode ? { affCode } : {}) },
+    success_url: `${APP_URL}/app/billing?status=success`,
+    cancel_url: `${APP_URL}/app/billing?status=cancelled`,
+  });
+  return c.json({ url: session.url });
+});
+
+/** One-time purchase: Partner ($4,999). Needs STRIPE_PRICE_PARTNER in env. Upgrades the buyer to the 50% affiliate tier. */
+keystone.post("/api/billing/partner", requireUser, async (c) => {
+  const price = process.env.STRIPE_PRICE_PARTNER;
+  if (!price) return c.json({ error: "Partner purchase is not configured yet." }, 400);
+  const [p] = await db.select().from(partnerAccess).where(eq(partnerAccess.userId, c.get("user").id));
+  if (p) return c.json({ error: "You are already a partner." }, 400);
+  const affCode = await referralCodeFor(c, c.get("user").id);
+  const session = await stripe.checkout.sessions.create({
+    mode: "payment",
+    customer: await customerFor(c.get("user")),
+    line_items: [{ price, quantity: 1 }],
+    client_reference_id: c.get("user").id,
+    metadata: { kind: "partner", ...(affCode ? { affCode } : {}) },
     success_url: `${APP_URL}/app/billing?status=success`,
     cancel_url: `${APP_URL}/app/billing?status=cancelled`,
   });
@@ -113,11 +173,13 @@ keystone.post("/api/billing/lifetime", requireUser, async (c) => {
 keystone.get("/api/billing/status", requireUser, async (c) => {
   const [s] = await db.select().from(subscriptions).where(eq(subscriptions.userId, c.get("user").id));
   const [life] = await db.select().from(lifetimeAccess).where(eq(lifetimeAccess.userId, c.get("user").id));
-  const active = c.get("isAdmin") || !!life || ["active", "trialing"].includes(s?.status ?? "");
+  const [part] = await db.select().from(partnerAccess).where(eq(partnerAccess.userId, c.get("user").id));
+  const active = c.get("isAdmin") || !!part || !!life || ["active", "trialing"].includes(s?.status ?? "");
   return c.json({
     isAdmin: c.get("isAdmin"),
     lifetime: !!life,
-    status: life ? "lifetime" : s?.status ?? "none",
+    partner: !!part,
+    status: part ? "partner" : life ? "lifetime" : s?.status ?? "none",
     currentPeriodEnd: s?.currentPeriodEnd ?? null,
     active,
   });
@@ -154,12 +216,42 @@ keystone.post("/api/stripe/webhook", async (c) => {
 
   if (event.type === "checkout.session.completed") {
     const s = event.data.object as Stripe.Checkout.Session;
+    const kind = s.metadata?.kind;
+    const buyerId = s.client_reference_id || (s.metadata as any)?.userId;
     if (s.mode === "subscription" && s.subscription) {
       const id = typeof s.subscription === "string" ? s.subscription : s.subscription.id;
       await syncSubscription(await stripe.subscriptions.retrieve(id));
-    } else if (s.mode === "payment" && s.client_reference_id) {
+    } else if (s.mode === "payment" && buyerId) {
       const cust = typeof s.customer === "string" ? s.customer : s.customer?.id ?? "";
-      await db.insert(lifetimeAccess).values({ userId: s.client_reference_id, stripeCustomerId: cust }).onConflictDoNothing();
+      if (kind === "partner") {
+        await db.insert(partnerAccess).values({ userId: buyerId, stripeCustomerId: cust }).onConflictDoNothing();
+        // Every partner gets the 50% referral tier (new affiliate record if they had none).
+        const [existingAff] = await db.select({ id: affiliates.id }).from(affiliates).where(eq(affiliates.userId, buyerId));
+        if (existingAff) {
+          await db.update(affiliates).set({ tier: "partner" }).where(eq(affiliates.id, existingAff.id));
+        } else {
+          await db.insert(affiliates).values({ userId: buyerId, code: await uniqueAffCode(), tier: "partner" });
+        }
+      } else {
+        await db.insert(lifetimeAccess).values({ userId: buyerId, stripeCustomerId: cust }).onConflictDoNothing();
+      }
+    }
+    // Referral commission on any completed purchase (initial sale only).
+    const affCode = (s.metadata as any)?.affCode;
+    if (affCode && buyerId) {
+      const [aff] = await db.select().from(affiliates)
+        .where(and(eq(affiliates.code, affCode), eq(affiliates.status, "active")));
+      if (aff && aff.userId !== buyerId) {
+        const amountCents = s.amount_total ?? 0;
+        if (amountCents > 0) {
+          const rate = aff.tier === "partner" ? PARTNER_RATE : AFFILIATE_RATE;
+          await db.insert(referrals).values({
+            affiliateId: aff.id, userId: buyerId, kind: kind ?? s.mode,
+            amountCents, commissionCents: Math.round(amountCents * rate),
+            stripeEventId: event.id,
+          }).onConflictDoNothing();
+        }
+      }
     }
   } else if (
     event.type === "customer.subscription.created" ||
@@ -169,6 +261,53 @@ keystone.post("/api/stripe/webhook", async (c) => {
     await syncSubscription(event.data.object as Stripe.Subscription);
   }
   return c.json({ received: true });
+});
+
+/* ---------------- affiliates: referral links + dashboard ---------------- */
+
+/** Public referral link: sets a 60-day tracking cookie, then sends the visitor to the site. */
+keystone.get("/r/:code", async (c) => {
+  const code = c.req.param("code").toUpperCase().trim();
+  const [aff] = await db.select({ id: affiliates.id }).from(affiliates)
+    .where(and(eq(affiliates.code, code), eq(affiliates.status, "active")));
+  if (!aff) return c.text("Not found", 404);
+  setCookie(c, AFF_COOKIE, code, {
+    path: "/",
+    maxAge: AFF_COOKIE_DAYS * 24 * 3600,
+    httpOnly: true,
+    sameSite: "Lax",
+    secure: APP_URL.startsWith("https://"),
+  });
+  return c.redirect("/", 302);
+});
+
+/** Join the affiliate program (free). Returns your referral code + link. */
+keystone.post("/api/affiliates/join", requireUser, async (c) => {
+  const userId = c.get("user").id;
+  const [existing] = await db.select().from(affiliates).where(eq(affiliates.userId, userId));
+  if (existing) return c.json({ ...existing, link: `${APP_URL}/r/${existing.code}` });
+  const code = await uniqueAffCode();
+  const [row] = await db.insert(affiliates).values({ userId, code }).returning();
+  return c.json({ ...row, link: `${APP_URL}/r/${row.code}` }, 201);
+});
+
+/** My affiliate dashboard data. */
+keystone.get("/api/affiliates/me", requireUser, async (c) => {
+  const [aff] = await db.select().from(affiliates).where(eq(affiliates.userId, c.get("user").id));
+  if (!aff) return c.json({ affiliate: null });
+  const [stats] = await db.select({
+    n: sql<number>`count(*)`,
+    earned: sql<number>`coalesce(sum(${referrals.commissionCents}),0)`,
+    paid: sql<number>`coalesce(sum(case when ${referrals.payoutStatus} = 'paid' then ${referrals.commissionCents} else 0 end),0)`,
+  }).from(referrals).where(eq(referrals.affiliateId, aff.id));
+  const recent = await db.select().from(referrals)
+    .where(eq(referrals.affiliateId, aff.id)).orderBy(desc(referrals.createdAt)).limit(20);
+  const rate = aff.tier === "partner" ? PARTNER_RATE : AFFILIATE_RATE;
+  return c.json({
+    affiliate: { ...aff, link: `${APP_URL}/r/${aff.code}`, rate },
+    stats: { referrals: stats?.n ?? 0, earnedCents: stats?.earned ?? 0, paidCents: stats?.paid ?? 0 },
+    recent,
+  });
 });
 
 /* ---------------- hot leads (subscribers) ---------------- */
@@ -428,6 +567,41 @@ admin.get("/overview", async (c) => {
 });
 
 admin.get("/subscribers", async (c) => c.json(await db.select().from(subscriptions).orderBy(desc(subscriptions.updatedAt))));
+admin.get("/affiliates", async (c) => {
+  const rows = await db.select({
+    id: affiliates.id,
+    userId: affiliates.userId,
+    code: affiliates.code,
+    tier: affiliates.tier,
+    status: affiliates.status,
+    createdAt: affiliates.createdAt,
+    referrals: sql<number>`count(${referrals.id})`,
+    earnedCents: sql<number>`coalesce(sum(${referrals.commissionCents}),0)`,
+    paidCents: sql<number>`coalesce(sum(case when ${referrals.payoutStatus} = 'paid' then ${referrals.commissionCents} else 0 end),0)`,
+  }).from(affiliates)
+    .leftJoin(referrals, eq(referrals.affiliateId, affiliates.id))
+    .groupBy(affiliates.id)
+    .orderBy(desc(affiliates.createdAt));
+  return c.json(rows);
+});
+admin.get("/referrals", async (c) => {
+  const status = c.req.query("status");
+  const where = status === "pending" || status === "paid" ? eq(referrals.payoutStatus, status) : undefined;
+  const rows = await db.select().from(referrals)
+    .where(where as any)
+    .orderBy(desc(referrals.createdAt)).limit(200);
+  return c.json(rows);
+});
+admin.post("/referrals/:id/pay", async (c) => {
+  await db.update(referrals).set({ payoutStatus: "paid" }).where(eq(referrals.id, Number(c.req.param("id"))));
+  return c.json({ ok: true });
+});
+admin.post("/affiliates/:id/status", async (c) => {
+  const { status } = await c.req.json().catch(() => ({}));
+  if (!["active", "paused"].includes(status)) return c.json({ error: "Invalid status" }, 400);
+  await db.update(affiliates).set({ status }).where(eq(affiliates.id, Number(c.req.param("id"))));
+  return c.json({ ok: true });
+});
 admin.get("/hot-leads", async (c) => c.json(await db.select().from(hotLeads).orderBy(desc(hotLeads.score), desc(hotLeads.createdAt))));
 admin.get("/leads", async (c) => c.json(await db.select().from(leads).orderBy(desc(leads.createdAt))));
 admin.patch("/leads/:id", async (c) => {

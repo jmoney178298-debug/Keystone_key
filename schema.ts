@@ -111,3 +111,41 @@ export const lifetimeAccess = sqliteTable("lifetime_access", {
   stripeCustomerId: text("stripe_customer_id").notNull(),
   createdAt: createdAt(),
 });
+
+/** Partner (one-time $4,999 purchase) access. Stripe is the source of truth. */
+export const partnerAccess = sqliteTable("partner_access", {
+  userId: text("user_id").primaryKey(),
+  stripeCustomerId: text("stripe_customer_id").notNull(),
+  createdAt: createdAt(),
+});
+
+/** Affiliates: users who refer buyers. Partners are affiliates with tier='partner' (50% vs 30%). */
+export const affiliates = sqliteTable("affiliates", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  userId: text("user_id").notNull().unique(),
+  /** unique referral code, e.g. "KX7Q2M9P" */
+  code: text("code").notNull().unique(),
+  /** affiliate | partner */
+  tier: text("tier").notNull().default("affiliate"),
+  /** active | paused */
+  status: text("status").notNull().default("active"),
+  createdAt: createdAt(),
+});
+
+/** Referral attributions + commissions owed. */
+export const referrals = sqliteTable("referrals", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  affiliateId: integer("affiliate_id").notNull(),
+  /** buyer */
+  userId: text("user_id").notNull(),
+  /** subscription | lifetime | partner */
+  kind: text("kind").notNull(),
+  /** gross sale amount in cents */
+  amountCents: integer("amount_cents").notNull(),
+  /** commission earned in cents */
+  commissionCents: integer("commission_cents").notNull(),
+  /** pending | paid */
+  payoutStatus: text("payout_status").notNull().default("pending"),
+  stripeEventId: text("stripe_event_id").unique(),
+  createdAt: createdAt(),
+});
