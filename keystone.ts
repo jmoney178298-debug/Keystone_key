@@ -745,6 +745,7 @@ Rules:
 - When the user asks to change something in their current project, output the FULL updated file again in a new \`\`\`html-artifact block, never a diff.
 - Never invent businesses, contact details, testimonials, or statistics. Never promise rankings, guaranteed results, or income.
 - When you claim a lead, tell the user it moved to their Pipeline and left the available pool.
+- When asked about affiliate commissions, tiers, or the Partner program, call the affiliate_info tool and answer from its data — never guess rates or terms.
 - If a tool fails, say what happened in plain words and suggest the next step.`;
 
 const ASSISTANT_TOOLS: any[] = [
@@ -756,7 +757,7 @@ const ASSISTANT_TOOLS: any[] = [
   { name: "claim_lead", description: "Claim a lead by id: moves it into the Pipeline as a prospect and removes it from the available leads pool.", input_schema: { type: "object", properties: { id: { type: "number" } }, required: ["id"] } },
   { name: "list_prospects", description: "List the user's pipeline prospects with their stage.", input_schema: { type: "object", properties: {} } },
   { name: "billing_status", description: "Check the user's plan, subscription status and whether the account is active.", input_schema: { type: "object", properties: {} } },
-  { name: "affiliate_info", description: "Get the user's affiliate referral link, commission rate and earnings.", input_schema: { type: "object", properties: {} } },
+  { name: "affiliate_info", description: "Get the user's affiliate referral link, commission rate, earnings, and the current program terms (tiers, fast track, Partner). Use its data when asked about commissions — never guess rates.", input_schema: { type: "object", properties: {} } },
 ];
 
 /** Execute one assistant tool call. Always returns a JSON-able object (never throws). */
@@ -826,10 +827,26 @@ async function runAssistantTool(name: string, input: any, userId: string): Promi
         return { plan: part ? "partner" : life ? "lifetime" : s?.plan ?? "none", status: s?.status ?? (life || part ? "active" : "none"), lifetime: !!life, partner: !!part };
       }
       case "affiliate_info": {
+        // Current program terms, so the assistant answers commission questions from live data, never guesses.
+        const program = {
+          baseRate: "15%",
+          tiers: [
+            { rate: "15%", referred: "$0+" },
+            { rate: "25%", referred: "$5,000+" },
+            { rate: "35%", referred: "$15,000+" },
+            { rate: "50%", referred: "$50,000+" },
+          ],
+          fastTrack: "Refer $25,000 in your first 90 days to lock 50% commission for life (first 5 affiliates only).",
+          ladderLock: "The first 15 affiliates to reach $50,000 referred lock 50% commission for life. The owner may revoke it for inactivity.",
+          partner: "Partner is $4,999/year and earns 40% commission from day one.",
+          tracking: "Referral links track for 60 days via cookie; self-referrals do not count.",
+          payouts: "Commissions are paid out monthly once earnings reach $50.",
+        };
         const [aff] = await db.select().from(affiliates).where(eq(affiliates.userId, userId));
-        if (!aff) return { joined: false, message: "Not in the affiliate program yet. Join from the Affiliates tab." };
+        if (!aff) return { joined: false, message: "Not in the affiliate program yet. Join from the Affiliates tab.", program };
         const [stats] = await db.select({ n: sql<number>`count(*)`, earned: sql<number>`coalesce(sum(${referrals.commissionCents}),0)` }).from(referrals).where(eq(referrals.affiliateId, aff.id));
-        return { joined: true, link: `${APP_URL}/r/${aff.code}`, rate: aff.tier === "partner" ? "50%" : "30%", referrals: stats?.n ?? 0, earnedCents: stats?.earned ?? 0 };
+        const rate = await affiliateRateFor(aff);
+        return { joined: true, link: `${APP_URL}/r/${aff.code}`, rate: `${Math.round(rate * 100)}%`, referrals: stats?.n ?? 0, earnedCents: stats?.earned ?? 0, program };
       }
       default:
         return { error: `Unknown tool: ${name}` };
