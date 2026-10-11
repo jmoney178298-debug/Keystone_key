@@ -29,6 +29,8 @@ CREATE TABLE IF NOT EXISTS partner_access (user_id text PRIMARY KEY, stripe_cust
 CREATE TABLE IF NOT EXISTS affiliates (id integer PRIMARY KEY AUTOINCREMENT, user_id text NOT NULL UNIQUE, code text NOT NULL UNIQUE, tier text NOT NULL DEFAULT 'affiliate', status text NOT NULL DEFAULT 'active', elite integer NOT NULL DEFAULT 0, elite_kind text, created_at integer NOT NULL);
 CREATE TABLE IF NOT EXISTS referrals (id integer PRIMARY KEY AUTOINCREMENT, affiliate_id integer NOT NULL, user_id text NOT NULL, kind text NOT NULL, amount_cents integer NOT NULL, commission_cents integer NOT NULL, payout_status text NOT NULL DEFAULT 'pending', stripe_event_id text UNIQUE, created_at integer NOT NULL);
 CREATE TABLE IF NOT EXISTS ideas (id integer PRIMARY KEY AUTOINCREMENT, user_id text NOT NULL, title text NOT NULL, body text NOT NULL, status text NOT NULL DEFAULT 'new', created_at integer NOT NULL);
+CREATE TABLE IF NOT EXISTS assistant_conversations (id integer PRIMARY KEY AUTOINCREMENT, user_id text NOT NULL, title text NOT NULL DEFAULT 'New chat', created_at integer NOT NULL, updated_at integer NOT NULL);
+CREATE TABLE IF NOT EXISTS assistant_messages (id integer PRIMARY KEY AUTOINCREMENT, conversation_id integer NOT NULL, role text NOT NULL, content text NOT NULL, created_at integer NOT NULL);
 `);
 
 // Column upgrades for databases created before these columns existed.

@@ -132,8 +132,7 @@ export const ideas = sqliteTable("ideas", {
 });
 
 /** Referral attributions + commissions owed. */
-export const referrals = sqliteTable("referrals", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
+export const referrals = sqliteTable("referrals", {  id: integer("id").primaryKey({ autoIncrement: true }),
   affiliateId: integer("affiliate_id").notNull(),
   /** buyer */
   userId: text("user_id").notNull(),
@@ -146,5 +145,25 @@ export const referrals = sqliteTable("referrals", {
   /** pending | paid */
   payoutStatus: text("payout_status").notNull().default("pending"),
   stripeEventId: text("stripe_event_id").unique(),
+  createdAt: createdAt(),
+});
+
+/** Assistant chat conversations — one row per chat thread. */
+export const assistantConversations = sqliteTable("assistant_conversations", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  userId: text("user_id").notNull(),
+  /** auto-titled from the first message */
+  title: text("title").notNull().default("New chat"),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+});
+
+/** Messages inside an assistant conversation. */
+export const assistantMessages = sqliteTable("assistant_messages", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  conversationId: integer("conversation_id").notNull(),
+  /** user | assistant */
+  role: text("role").notNull(),
+  content: text("content").notNull(),
   createdAt: createdAt(),
 });
