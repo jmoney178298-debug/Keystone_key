@@ -6,12 +6,12 @@
  */
 import { Hono, type MiddlewareHandler } from "hono";
 import { getCookie, setCookie } from "hono/cookie";
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import Stripe from "stripe";
 import crypto from "node:crypto";
 import { db } from "./db";
 import { auth } from "./auth";
-import { affiliates, aiUsage, funnels, funnelLeads, ideas, leads, lifetimeAccess, partnerAccess, prospects, referrals, stripeEvents, subscriptions } from "./schema";
+import { affiliates, aiUsage, assistantConversations, assistantMessages, funnels, funnelLeads, ideas, leads, lifetimeAccess, partnerAccess, prospects, referrals, stripeEvents, subscriptions } from "./schema";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
 const OWNER_EMAIL = (process.env.OWNER_EMAIL ?? "").trim().toLowerCase();
@@ -856,20 +856,46 @@ async function runAssistantTool(name: string, input: any, userId: string): Promi
   }
 }
 
-/** Chat with the all-in-one assistant. One AI request is charged per user turn. */
+/** Chat with the all-in-one assistant. One AI request is charged per user turn.
+ * Conversations persist server-side: pass conversationId to continue a thread,
+ * or omit it to start a new one. History is loaded from the DB, so a refresh
+ * or a new device resumes the same thread. */
 keystone.post("/api/assistant/chat", requireUser, requireSub, async (c) => {
   const body = await c.req.json().catch(() => ({}));
   const user = c.get("user");
-  const incoming = Array.isArray(body.messages) ? body.messages : [];
-  const messages: any[] = incoming
-    .filter((m: any) => (m?.role === "user" || m?.role === "assistant") && typeof m?.content === "string" && m.content.trim())
-    .slice(-20)
-    .map((m: any) => ({ role: m.role, content: m.content.slice(0, 4000) }));
-  if (!messages.length || messages[messages.length - 1].role !== "user")
-    return c.json({ error: "Send a message to the assistant." }, 400);
+  const userText = typeof body.message === "string" ? body.message.trim().slice(0, 4000) : "";
+  if (!userText) return c.json({ error: "Send a message to the assistant." }, 400);
   if (!process.env.ANTHROPIC_API_KEY) return c.json({ error: "AI is not configured yet." }, 503);
   const quota = await aiQuota(user.id, c.get("isAdmin"));
   if (!quota.ok) return c.json({ error: quota.error }, 429);
+
+  // Find the thread, or start a new one (auto-titled from the first message).
+  let conv: any = null;
+  const convId = Number(body.conversationId) || 0;
+  if (convId) {
+    [conv] = await db.select().from(assistantConversations)
+      .where(and(eq(assistantConversations.userId, user.id), eq(assistantConversations.id, convId)));
+    if (!conv) return c.json({ error: "Conversation not found." }, 404);
+  } else {
+    [conv] = await db.insert(assistantConversations)
+      .values({ userId: user.id, title: userText.slice(0, 48) || "New chat" }).returning();
+    // Keep the list tidy: cap stored conversations per user.
+    const olds = await db.select({ id: assistantConversations.id }).from(assistantConversations)
+      .where(eq(assistantConversations.userId, user.id)).orderBy(desc(assistantConversations.id));
+    if (olds.length > 100) {
+      const drop = olds.slice(100).map((o) => o.id);
+      await db.delete(assistantMessages).where(inArray(assistantMessages.conversationId, drop));
+      await db.delete(assistantConversations).where(inArray(assistantConversations.id, drop));
+    }
+  }
+
+  const hist = await db.select({ role: assistantMessages.role, content: assistantMessages.content })
+    .from(assistantMessages).where(eq(assistantMessages.conversationId, conv.id))
+    .orderBy(assistantMessages.id).limit(60);
+  const messages: any[] = [
+    ...hist.map((m) => ({ role: m.role, content: String(m.content).slice(0, 4000) })),
+    { role: "user", content: userText },
+  ].slice(-20);
 
   // Current project context, so "change the headline" edits the right code.
   const art = body.artifact;
@@ -911,11 +937,56 @@ keystone.post("/api/assistant/chat", requireUser, requireSub, async (c) => {
       data = await callAnthropic(messages);
     }
     const text = (data.content ?? []).filter((b: any) => b.type === "text").map((b: any) => b.text).join("\n").trim();
-    return c.json({ reply: text || "I ran into trouble on that one. Try asking again in different words." });
+    const reply = text || "I ran into trouble on that one. Try asking again in different words.";
+    // Persist the turn (only on success, so a failed request never leaves a half-saved thread).
+    await db.insert(assistantMessages).values([
+      { conversationId: conv.id, role: "user", content: userText },
+      { conversationId: conv.id, role: "assistant", content: reply.slice(0, 120000) },
+    ]);
+    await db.update(assistantConversations).set({ updatedAt: new Date() })
+      .where(eq(assistantConversations.id, conv.id));
+    return c.json({ reply, conversationId: conv.id });
   } catch (e: any) {
     console.error("assistant failure", e?.status || "", e?.error || e?.message || e);
     return c.json({ error: e?.error || "The assistant could not be reached." }, e?.status ?? 502);
   }
+});
+
+/** My saved assistant conversations, newest first. */
+keystone.get("/api/assistant/conversations", requireUser, async (c) => {
+  const user = c.get("user");
+  const rows = await db.select({
+    id: assistantConversations.id,
+    title: assistantConversations.title,
+    updatedAt: assistantConversations.updatedAt,
+  }).from(assistantConversations).where(eq(assistantConversations.userId, user.id))
+    .orderBy(desc(assistantConversations.updatedAt)).limit(100);
+  return c.json(rows);
+});
+
+/** Load one conversation's messages. */
+keystone.get("/api/assistant/conversations/:id", requireUser, async (c) => {
+  const user = c.get("user");
+  const id = Number(c.req.param("id")) || 0;
+  const [conv] = await db.select().from(assistantConversations)
+    .where(and(eq(assistantConversations.userId, user.id), eq(assistantConversations.id, id)));
+  if (!conv) return c.json({ error: "Conversation not found." }, 404);
+  const msgs = await db.select({
+    role: assistantMessages.role, content: assistantMessages.content,
+  }).from(assistantMessages).where(eq(assistantMessages.conversationId, id)).orderBy(assistantMessages.id);
+  return c.json({ id: conv.id, title: conv.title, messages: msgs });
+});
+
+/** Delete a conversation and its messages. */
+keystone.delete("/api/assistant/conversations/:id", requireUser, async (c) => {
+  const user = c.get("user");
+  const id = Number(c.req.param("id")) || 0;
+  const [conv] = await db.select({ id: assistantConversations.id }).from(assistantConversations)
+    .where(and(eq(assistantConversations.userId, user.id), eq(assistantConversations.id, id)));
+  if (!conv) return c.json({ error: "Conversation not found." }, 404);
+  await db.delete(assistantMessages).where(eq(assistantMessages.conversationId, id));
+  await db.delete(assistantConversations).where(eq(assistantConversations.id, id));
+  return c.json({ ok: true });
 });
 
 /** Today's AI usage for the chat UI. */

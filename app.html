@@ -72,10 +72,10 @@ function cp(t){try{navigator.clipboard.writeText(t);toast('Copied')}catch(e){pro
 function toast(t){const d=document.createElement('div');d.style.cssText='position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#1B2440;border:1px solid rgba(255,255,255,.15);color:#E8EBF3;padding:10px 20px;border-radius:999px;font-size:14px;z-index:99';d.textContent=t;document.body.appendChild(d);setTimeout(()=>d.remove(),2400)}
 
 let view='assist', isAdmin=false, planLabel='basic';
-let msgs=[]; try{msgs=JSON.parse(localStorage.getItem('aiu_chat')||'[]')}catch(e){msgs=[]}
+let msgs=[], chatId=null, convos=[];
 let artifact=null; // {name, code}
 let limits={plan:'basic',limit:20,used:0};
-const chatSave=()=>{try{localStorage.setItem('aiu_chat',JSON.stringify(msgs.slice(-30)))}catch(e){}};
+const dshort=t=>{try{return new Date(t).toLocaleDateString(undefined,{month:'short',day:'numeric'})}catch(e){return''}};
 
 const NAV=[['assist','Assistant'],['funnels','Funnels & Leads'],['aff','Affiliates'],['bill','Billing']];
 function renderSide(){
@@ -83,7 +83,7 @@ function renderSide(){
     NAV.concat(isAdmin?[['admin','Admin']]:[]).map(n=>`<button class="nav ${n[0]==view?'on':''}" onclick="setView('${n[0]}')">${n[1]}</button>`).join('')+
     `<div class="foot"><span class="pill">${limits.limit<0?'AI: unlimited':`AI: ${limits.used}/${limits.limit} today`}</span><button class="nav" onclick="out()">Sign out</button></div>`;
 }
-function setView(v){view=v;artifactTab='preview';render()}
+function setView(v){view=v;artifactTab='preview';if(v=='assist'){chatId=null;msgs=[];artifact=null;loadConvos()}render()}
 async function out(){await api('/api/auth/sign-out',{});location.href='/'}
 
 /* ---------- chat ---------- */
@@ -101,6 +101,9 @@ function fmtBody(t){
 function vAssist(){
   return `<div class="fade"><h1>Your AI <i>assistant</i></h1>
   <p class="sub">Chat, build funnels that generate leads, create websites and apps, manage leads — all in one place. Ask for anything.</p>
+  <div class="row" style="margin-bottom:12px"><button class="btn ghost" onclick="newChat()">+ New chat</button>
+  <select id="convosel" onchange="openConvo(this.value)" style="flex:1;min-width:160px;max-width:440px"><option value="">Past conversations…</option>${convos.map(c=>`<option value="${c.id}"${c.id==chatId?' selected':''}>${esc(c.title)} · ${esc(dshort(c.updatedAt))}</option>`).join('')}</select>
+  ${chatId?`<button class="btn danger" onclick="delConvo()">Delete</button>`:''}</div>
   <div class="chips">${CHIPS.map(c=>`<button class="chip" onclick="sendChat('${c.replace(/'/g,"\\'")}')">${esc(c)}</button>`).join('')}</div>
   <div id="chatlog">${msgs.map(m=>`<div class="msg ${m.role=='user'?'user':'ai'}">${fmtBody(m.content)}</div>`).join('')||'<div class="msg sys">Say hello — try one of the suggestions above.</div>'}</div>
   <div id="artifact"></div>
@@ -123,22 +126,50 @@ function stripArtifact(t){return String(t).replace(/```html-artifact\s*\n[\s\S]*
 async function sendChat(prefill){
   const inp=$('#cin'); const text=(prefill||(inp?inp.value:'')).trim(); if(!text) return;
   if(inp) inp.value='';
-  msgs.push({role:'user',content:text}); chatSave(); render();
+  msgs.push({role:'user',content:text}); render();
   const log=$('#chatlog'); log.insertAdjacentHTML('beforeend','<div class="msg ai" id="thinking">Thinking…</div>'); log.scrollTop=log.scrollHeight;
   $('#csend').disabled=true;
-  const r=await api('/api/assistant/chat',{messages:msgs.slice(-20),artifact});
+  const r=await api('/api/assistant/chat',{message:text,conversationId:chatId,artifact});
   $('#thinking')?.remove(); $('#csend').disabled=false;
   if(r.status==402){msgs.push({role:'assistant',content:'Your subscription is not active. Open the Billing tab to upgrade, then come back and ask me again.'});}
   else if(!r.ok){msgs.push({role:'assistant',content:r.data.error||'Something went wrong. Try again.'});}
   else{
+    chatId=r.data.conversationId||chatId;
     let reply=String(r.data.reply||'');
     const m=reply.match(/```html-artifact\s*\n([\s\S]*?)```/);
     if(m){artifact={name:text.slice(0,48)||'project',code:m[1].trim()};reply=stripArtifact(reply)||'Done — your project is ready in the preview panel below.';}
     msgs.push({role:'assistant',content:reply});
+    loadConvos();
   }
-  chatSave(); render();
+  render();
   const l2=$('#chatlog'); if(l2) l2.scrollTop=l2.scrollHeight;
   const lim=await api('/api/assistant/limits'); if(lim.ok){limits=lim.data;renderSide()}
+}
+function newChat(){chatId=null;msgs=[];artifact=null;render()}
+async function loadConvos(){
+  const r=await api('/api/assistant/conversations');
+  convos=r.ok?r.data:[];
+  const s=$('#convosel');
+  if(s&&view=='assist')s.innerHTML='<option value="">Past conversations…</option>'+convos.map(c=>`<option value="${c.id}"${c.id==chatId?' selected':''}>${esc(c.title)} · ${esc(dshort(c.updatedAt))}</option>`).join('');
+}
+async function openConvo(id){
+  if(!id)return;
+  const r=await api('/api/assistant/conversations/'+id);
+  if(!r.ok){toast('Could not open that conversation');loadConvos();return}
+  chatId=r.data.id; artifact=null;
+  msgs=(r.data.messages||[]).map(m=>({role:m.role,content:m.content}));
+  for(let i=msgs.length-1;i>=0;i--){
+    if(msgs[i].role=='assistant'){
+      const m=String(msgs[i].content).match(/```html-artifact\s*\n([\s\S]*?)```/);
+      if(m){artifact={name:r.data.title||'project',code:m[1].trim()};msgs[i].content=stripArtifact(msgs[i].content)||'Done — your project is ready in the preview panel below.';break}
+    }
+  }
+  render();
+}
+async function delConvo(){
+  if(!chatId||!confirm('Delete this conversation?'))return;
+  await fetch('/api/assistant/conversations/'+chatId,{method:'DELETE'});
+  chatId=null;msgs=[];artifact=null;loadConvos();render();
 }
 
 /* ---------- funnels & leads ---------- */
@@ -247,7 +278,7 @@ function render(){
   const b=await api('/api/billing/status');
   if(b.ok&&b.data){isAdmin=!!b.data.isAdmin;planLabel=b.data.status}
   const lim=await api('/api/assistant/limits'); if(lim.ok)limits=lim.data;
-  render();
+  render(); loadConvos();
   const q=new URLSearchParams(location.search).get('billing');
   if(q=='success'||q=='cancelled'){setTimeout(()=>toast(q=='success'?'Payment successful — welcome!':'Checkout was cancelled. No charge was made.'),600);history.replaceState(null,'',location.pathname)}
 })();
