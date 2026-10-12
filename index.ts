@@ -55,6 +55,11 @@ app.get("/shots/:name", (c) => {
 
 app.get("/", (c) => c.html(fs.readFileSync("index.html", "utf8")));
 
+// SEO/GEO discoverability files
+app.get("/robots.txt", (c) => c.body(fs.readFileSync("robots.txt", "utf8"), 200, { "Content-Type": "text/plain", "Cache-Control": "public, max-age=86400" }));
+app.get("/sitemap.xml", (c) => c.body(fs.readFileSync("sitemap.xml", "utf8"), 200, { "Content-Type": "application/xml", "Cache-Control": "public, max-age=86400" }));
+app.get("/llms.txt", (c) => c.body(fs.readFileSync("llms.txt", "utf8"), 200, { "Content-Type": "text/plain", "Cache-Control": "public, max-age=86400" }));
+
 const port = Number(process.env.PORT ?? 3000);
 serve({ fetch: app.fetch, port, hostname: "0.0.0.0" });
 console.log(`Keystone listening on ${port}`);
