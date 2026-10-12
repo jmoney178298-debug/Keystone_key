@@ -181,3 +181,23 @@ export const limitHits = sqliteTable("limit_hits", {
   plan: text("plan").notNull(),
   createdAt: createdAt(),
 });
+
+/** Blog posts synced from the BabyLoveGrowth API. Upserted idempotently by slug. */
+export const blgPosts = sqliteTable("blg_posts", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  /** BLG article id */
+  blgId: integer("blg_id"),
+  /** URL slug — the idempotency key */
+  slug: text("slug").notNull().unique(),
+  title: text("title").notNull(),
+  contentHtml: text("content_html"),
+  contentMarkdown: text("content_markdown"),
+  metaDescription: text("meta_description"),
+  heroImageUrl: text("hero_image_url"),
+  jsonLd: text("json_ld"),
+  faqJsonLd: text("faq_json_ld"),
+  languageCode: text("language_code").notNull().default("en"),
+  publishedAt: integer("published_at", { mode: "timestamp" }),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+});

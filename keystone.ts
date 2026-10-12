@@ -11,8 +11,8 @@ import Stripe from "stripe";
 import crypto from "node:crypto";
 import { db, sqlite } from "./db";
 import { auth } from "./auth";
-import { affiliates, aiUsage, assistantConversations, assistantMessages, funnels, funnelLeads, ideas, leads, lifetimeAccess, limitHits, partnerAccess, prospects, referrals, stripeEvents, subscriptions } from "./schema";
-import { blgConfigured, blgGetArticle, blgListArticles } from "./blg";
+import { affiliates, aiUsage, assistantConversations, assistantMessages, blgPosts, funnels, funnelLeads, ideas, leads, lifetimeAccess, limitHits, partnerAccess, prospects, referrals, stripeEvents, subscriptions } from "./schema";
+import { blgConfigured, blgGetArticle, blgListArticles, blgSyncArticles } from "./blg";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
 const OWNER_EMAIL = (process.env.OWNER_EMAIL ?? "").trim().toLowerCase();
@@ -582,6 +582,60 @@ keystone.get("/f/:slug", async (c) => {
   return c.html(f.html);
 });
 
+/** Blog: public index of synced BabyLoveGrowth articles. */
+keystone.get("/blog", async (c) => {
+  const posts = await db.select().from(blgPosts).orderBy(desc(blgPosts.publishedAt));
+  const cards = posts.map(p => `
+    <a href="/blog/${p.slug}" style="display:block;text-decoration:none;color:inherit;border:1px solid #e5e7eb;border-radius:12px;overflow:hidden;background:#fff">
+      ${p.heroImageUrl ? `<img src="${p.heroImageUrl}" alt="" style="width:100%;height:180px;object-fit:cover;display:block">` : ""}
+      <div style="padding:18px"><h2 style="margin:0 0 8px;font-size:20px">${escHtml(p.title)}</h2>
+      ${p.metaDescription ? `<p style="margin:0;color:#5B6475;font-size:15px">${escHtml(p.metaDescription)}</p>` : ""}</div>
+    </a>`).join("");
+  return c.html(`<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Blog — AIU: Amp It Up</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="SEO and marketing guides from AIU: Amp It Up.">
+<link rel="canonical" href="https://www.getaiu.online/blog"></head>
+<body style="margin:0;font:500 16px/1.6 system-ui,sans-serif;background:#F4F6FA;color:#0B0F1A">
+<div style="max-width:900px;margin:0 auto;padding:48px 20px">
+<h1 style="font-size:32px;margin:0 0 8px">Blog</h1>
+<p style="color:#5B6475;margin:0 0 28px">Guides on SEO, funnels and growing with AI.</p>
+<div style="display:grid;gap:20px;grid-template-columns:repeat(auto-fill,minmax(260px,1fr))">${cards || "<p>No articles yet.</p>"}</div>
+<p style="margin-top:32px"><a href="/" style="color:#4F5BFF">← Back to AIU</a></p></div></body></html>`);
+});
+
+/** Blog: one synced article, with its JSON-LD in the head. */
+keystone.get("/blog/:slug", async (c) => {
+  const [p] = await db.select().from(blgPosts).where(eq(blgPosts.slug, c.req.param("slug")));
+  if (!p) return c.text("Not found", 404);
+  const ld = [p.jsonLd, p.faqJsonLd].filter(Boolean).map(j => `<script type="application/ld+json">${j}</script>`).join("\n");
+  const pub = p.publishedAt ? new Date(p.publishedAt).toISOString().slice(0, 10) : "";
+  return c.html(`<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>${escHtml(p.title)} — AIU</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+${p.metaDescription ? `<meta name="description" content="${escHtml(p.metaDescription)}">` : ""}
+<link rel="canonical" href="https://www.getaiu.online/blog/${p.slug}">
+${ld}</head>
+<body style="margin:0;font:500 17px/1.7 system-ui,sans-serif;background:#fff;color:#0B0F1A">
+<div style="max-width:720px;margin:0 auto;padding:48px 20px">
+<p><a href="/blog" style="color:#4F5BFF;text-decoration:none">← Blog</a></p>
+<h1 style="font-size:34px;line-height:1.25;margin:0 0 8px">${escHtml(p.title)}</h1>
+${pub ? `<p style="color:#5B6475;font-size:14px;margin:0 0 24px">${pub}</p>` : ""}
+${p.heroImageUrl ? `<img src="${p.heroImageUrl}" alt="" style="width:100%;border-radius:12px;margin:0 0 24px">` : ""}
+<article>${p.contentHtml || `<pre style="white-space:pre-wrap">${escHtml(p.contentMarkdown || "")}</pre>`}</article>
+<hr style="margin:40px 0;border:none;border-top:1px solid #e5e7eb">
+<p><a href="/" style="color:#4F5BFF">Try AIU — your all-in-one AI assistant</a></p>
+</div></body></html>`);
+});
+
+/** Sync BabyLoveGrowth articles into the blog (owner only). */
+keystone.post("/api/blg/sync", requireUser, requireAdmin, async (c) => {
+  try {
+    const result = await blgSyncArticles(db, blgPosts, 50);
+    return c.json({ ok: true, ...result });
+  } catch (e: any) {
+    return c.json({ ok: false, error: e?.message || "Sync failed." }, 502);
+  }
+});
+
 /** Notify a funnel owner the moment a new lead opts in. Email via Resend when
  *  RESEND_API_KEY is set; otherwise a no-op (the in-app badge still works). */
 async function notifyNewLead(ownerId: string, lead: { funnel: string; name: string; email: string; phone?: string }) {
@@ -901,6 +955,7 @@ const ASSISTANT_TOOLS: any[] = [
   { name: "affiliate_info", description: "Get the user's affiliate referral link, commission rate, earnings, and the current program terms (tiers, fast track, Partner). Use its data when asked about commissions — never guess rates.", input_schema: { type: "object", properties: {} } },
   { name: "list_blg_articles", description: "List BabyLoveGrowth SEO article summaries (id, title, etc.). Use when the user wants to browse available articles.", input_schema: { type: "object", properties: { limit: { type: "number", description: "How many to list (default 10, max 50)" }, offset: { type: "number", description: "Skip this many (default 0)" } } } },
   { name: "get_blg_article", description: "Get one full BabyLoveGrowth article by id, with full content_html and content_markdown. Get the id from list_blg_articles first.", input_schema: { type: "object", properties: { id: { type: "string", description: "Article id from the list" } }, required: ["id"] } },
+  { name: "sync_blg_articles", description: "Sync BabyLoveGrowth articles into the site blog (/blog). Fetches the latest articles and upserts them by slug. Use when the user wants the newest articles published.", input_schema: { type: "object", properties: {} } },
 ];
 
 /** Execute one assistant tool call. Always returns a JSON-able object (never throws). */
@@ -994,6 +1049,10 @@ async function runAssistantTool(name: string, input: any, userId: string): Promi
       case "list_blg_articles": {
         const articles = await blgListArticles(Number(input.limit ?? 10), Number(input.offset ?? 0));
         return { articles };
+      }
+      case "sync_blg_articles": {
+        const result = await blgSyncArticles(db, blgPosts, 50);
+        return { synced: true, ...result, blog: `${APP_URL}/blog` };
       }
       case "get_blg_article": {
         const id = String(input.id ?? "").trim();
