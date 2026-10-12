@@ -12,6 +12,7 @@ import crypto from "node:crypto";
 import { db, sqlite } from "./db";
 import { auth } from "./auth";
 import { affiliates, aiUsage, assistantConversations, assistantMessages, funnels, funnelLeads, ideas, leads, lifetimeAccess, limitHits, partnerAccess, prospects, referrals, stripeEvents, subscriptions } from "./schema";
+import { blgConfigured, blgGetArticle, blgListArticles } from "./blg";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
 const OWNER_EMAIL = (process.env.OWNER_EMAIL ?? "").trim().toLowerCase();
@@ -260,8 +261,29 @@ keystone.post("/api/billing/partner", requireUser, async (c) => {
   } catch (e: any) { return c.json({ error: e?.error || "Checkout failed." }, e?.status ?? 500); }
 });
 
-keystone.get("/api/billing/status", requireUser, async (c) => {
-  const [s] = await db.select().from(subscriptions).where(eq(subscriptions.userId, c.get("user").id));
+/** BabyLoveGrowth integration: list article summaries. */
+keystone.get("/api/blg/articles", requireUser, async (c) => {
+  try {
+    const limit = Number(c.req.query("limit") ?? 50);
+    const offset = Number(c.req.query("offset") ?? 0);
+    const data = await blgListArticles(limit, offset);
+    return c.json({ configured: true, data });
+  } catch (e: any) {
+    return c.json({ configured: blgConfigured(), error: e?.message || "Failed to fetch articles." }, 502);
+  }
+});
+
+/** BabyLoveGrowth integration: get one full article. */
+keystone.get("/api/blg/articles/:id", requireUser, async (c) => {
+  try {
+    const data = await blgGetArticle(c.req.param("id"));
+    return c.json({ configured: true, data });
+  } catch (e: any) {
+    return c.json({ configured: blgConfigured(), error: e?.message || "Failed to fetch article." }, 502);
+  }
+});
+
+keystone.get("/api/billing/status", requireUser, async (c) => {  const [s] = await db.select().from(subscriptions).where(eq(subscriptions.userId, c.get("user").id));
   const [life] = await db.select().from(lifetimeAccess).where(eq(lifetimeAccess.userId, c.get("user").id));
   const [part] = await db.select().from(partnerAccess).where(eq(partnerAccess.userId, c.get("user").id));
   const active = c.get("isAdmin") || !!part || !!life || ["active", "trialing"].includes(s?.status ?? "");
@@ -877,6 +899,8 @@ const ASSISTANT_TOOLS: any[] = [
   { name: "list_prospects", description: "List the user's pipeline prospects with their stage.", input_schema: { type: "object", properties: {} } },
   { name: "billing_status", description: "Check the user's plan, subscription status and whether the account is active.", input_schema: { type: "object", properties: {} } },
   { name: "affiliate_info", description: "Get the user's affiliate referral link, commission rate, earnings, and the current program terms (tiers, fast track, Partner). Use its data when asked about commissions — never guess rates.", input_schema: { type: "object", properties: {} } },
+  { name: "list_blg_articles", description: "List BabyLoveGrowth SEO article summaries (id, title, etc.). Use when the user wants to browse available articles.", input_schema: { type: "object", properties: { limit: { type: "number", description: "How many to list (default 10, max 50)" }, offset: { type: "number", description: "Skip this many (default 0)" } } } },
+  { name: "get_blg_article", description: "Get one full BabyLoveGrowth article by id, with full content_html and content_markdown. Get the id from list_blg_articles first.", input_schema: { type: "object", properties: { id: { type: "string", description: "Article id from the list" } }, required: ["id"] } },
 ];
 
 /** Execute one assistant tool call. Always returns a JSON-able object (never throws). */
@@ -966,6 +990,16 @@ async function runAssistantTool(name: string, input: any, userId: string): Promi
         const [stats] = await db.select({ n: sql<number>`count(*)`, earned: sql<number>`coalesce(sum(${referrals.commissionCents}),0)` }).from(referrals).where(eq(referrals.affiliateId, aff.id));
         const rate = await affiliateRateFor(aff);
         return { joined: true, link: `${APP_URL}/r/${aff.code}`, rate: `${Math.round(rate * 100)}%`, referrals: stats?.n ?? 0, earnedCents: stats?.earned ?? 0, program };
+      }
+      case "list_blg_articles": {
+        const articles = await blgListArticles(Number(input.limit ?? 10), Number(input.offset ?? 0));
+        return { articles };
+      }
+      case "get_blg_article": {
+        const id = String(input.id ?? "").trim();
+        if (!id) return { error: "Provide an article id from list_blg_articles." };
+        const article = await blgGetArticle(id);
+        return { article };
       }
       default:
         return { error: `Unknown tool: ${name}` };
