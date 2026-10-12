@@ -112,15 +112,81 @@ function welcomeHtml(){
 function vAssist(){
   return `<div class="fade"><h1>Your AI <i>assistant</i></h1>
   <p class="sub">Chat, build funnels that generate leads, create websites and apps, manage leads — all in one place. Ask for anything.</p>
-  <div class="row" style="margin-bottom:12px"><button class="btn ghost" onclick="newChat()">+ New chat</button>
-  <select id="convosel" onchange="openConvo(this.value)" style="flex:1;min-width:160px;max-width:440px"><option value="">Past conversations…</option>${convos.map(c=>`<option value="${c.id}"${c.id==chatId?' selected':''}>${esc(c.title)} · ${esc(dshort(c.updatedAt))}</option>`).join('')}</select>
-  ${chatId?`<button class="btn danger" onclick="delConvo()">Delete</button>`:''}</div>
+  <div class="row" style="margin-bottom:12px">
+    <button class="btn ${assistMode=='chat'?'lime':'ghost'}" onclick="setAssistMode('chat')">Chat</button>
+    <button class="btn ${assistMode=='agent'?'lime':'ghost'}" onclick="setAssistMode('agent')">Agent mode</button>
+    ${assistMode=='chat'?`<button class="btn ghost" onclick="newChat()">+ New chat</button>
+    <select id="convosel" onchange="openConvo(this.value)" style="flex:1;min-width:160px;max-width:440px"><option value="">Past conversations…</option>${convos.map(c=>`<option value="${c.id}"${c.id==chatId?' selected':''}>${esc(c.title)} · ${esc(dshort(c.updatedAt))}</option>`).join('')}</select>
+    ${chatId?`<button class="btn danger" onclick="delConvo()">Delete</button>`:''}`:''}
+  </div>
+  ${assistMode=='chat'?`
   <div class="chips">${CHIPS.map(c=>`<button class="chip" onclick="sendChat('${c.replace(/'/g,"\\'")}')">${esc(c)}</button>`).join('')}</div>
   <div id="chatlog">${msgs.map(m=>`<div class="msg ${m.role=='user'?'user':'ai'}">${fmtBody(m.content)}</div>`).join('')||welcomeHtml()}</div>
   <div id="artifact"></div>
   <div class="composer"><textarea id="cin" rows="2" placeholder="Ask anything, or tell me what to build..." onkeydown="if(event.key=='Enter'&&!event.shiftKey){event.preventDefault();sendChat()}"></textarea><button class="btn" id="csend" onclick="sendChat()">Send</button></div>
+  `:`
+  <div class="card" style="border-color:var(--lime)">
+    <b>Agent mode</b>
+    <p style="color:var(--stone);font-size:14px;margin:6px 0 12px">Give the agent a goal and watch it work through it step by step — like watching an assistant check things off a list. Try: "Build a funnel for my roofing business and publish it" or "Check my new leads and claim the best one".</p>
+    <div class="composer"><textarea id="agentIn" rows="2" placeholder="What should the agent get done?"></textarea><button class="btn lime" id="agentGo" onclick="runAgent()">Run</button></div>
+  </div>
+  <div id="agentSteps" style="display:grid;gap:8px;margin-top:12px"></div>
+  <div id="agentDone"></div>
+  `}
   </div>`;
 }
+let assistMode='chat';
+function setAssistMode(m){assistMode=m;render()}
+/* ---------- Agent mode: watch the AI work step by step ---------- */
+let agentRunning=false;
+async function runAgent(){
+  if(agentRunning)return;
+  const goal=(document.getElementById('agentIn')?.value||'').trim();
+  if(!goal){toast('Tell the agent what to get done.');return}
+  agentRunning=true;
+  const stepsEl=document.getElementById('agentSteps'),doneEl=document.getElementById('agentDone');
+  stepsEl.innerHTML='';doneEl.innerHTML='';
+  document.getElementById('agentGo').textContent='Working…';
+  const addStep=(text,state)=>{
+    const d=document.createElement('div');
+    d.className='card';d.style.cssText='padding:10px 14px;display:flex;gap:10px;align-items:center';
+    d.innerHTML=`<span style="font-size:18px">${state=='done'?'✅':state=='work'?'⏳':'▫️'}</span><span>${esc(text)}</span>`;
+    stepsEl.appendChild(d);return d;
+  };
+  let cur=null;
+  try{
+    const r=await fetch('/api/assistant/agent',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({goal})});
+    if(r.status===429){const j=await r.json().catch(()=>({}));showUpgrade(j);throw new Error(j.error||'Daily AI limit reached.')}
+    if(!r.ok)throw new Error('Agent request failed.');
+    const rd=r.body.getReader(),dec=new TextDecoder();let buf='';
+    const flush=()=>{
+      let i;while((i=buf.indexOf('\n\n'))>=0){
+        const chunk=buf.slice(0,i);buf=buf.slice(i+2);
+        for(const line of chunk.split('\n')){
+          if(!line.startsWith('data:'))continue;
+          try{
+            const e=JSON.parse(line.slice(5));
+            if(e.type=='step'){if(cur)cur.querySelector('span:first-child').textContent='✅';cur=addStep(e.text,'work')}
+            else if(e.type=='tool'){cur=addStep(e.text,'work')}
+            else if(e.type=='tool_done'){if(cur)cur.querySelector('span:first-child').textContent='✅'}
+            else if(e.type=='done'){if(cur)cur.querySelector('span:first-child').textContent='✅';lastAgentGoal=goal;doneEl.innerHTML=`<div class="card" style="border-color:var(--lime);margin-top:12px"><b>Done</b><p style="white-space:pre-wrap">${esc(e.text)}</p><button class="btn ghost" onclick="copyPaxHandoff()">Copy handoff for Pax</button></div>`}
+            else if(e.type=='error'){toast(e.text)}
+          }catch{}
+        }
+      }
+    };
+    while(true){const {done,value}=await rd.read();if(done)break;buf+=dec.decode(value,{stream:true});flush()}
+    flush();
+  }catch(err){if(err.message!=='Agent request failed.'&&!String(err.message).includes('Daily'))toast(err.message||'Agent failed.')}
+  agentRunning=false;const g=document.getElementById('agentGo');if(g)g.textContent='Run';
+}
+function copyPaxHandoff(){
+  const steps=[...document.querySelectorAll('#agentSteps .card span:last-child')].map(s=>s.textContent.trim());
+  const done=document.querySelector('#agentDone p')?.textContent.trim()||'';
+  const txt=`AIU Agent handoff\nGoal: ${lastAgentGoal}\nSteps:\n${steps.map(s=>'- '+s).join('\n')}\nResult:\n${done}`;
+  navigator.clipboard.writeText(txt).then(()=>toast('Handoff copied — paste it to Pax in chat.')).catch(()=>toast('Copy failed.'));
+}
+let lastAgentGoal='';
 let artifactTab='preview';
 function renderArtifact(){
   const el=$('#artifact'); if(!el) return;

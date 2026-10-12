@@ -1080,6 +1080,108 @@ keystone.delete("/api/assistant/conversations/:id", requireUser, async (c) => {
   return c.json({ ok: true });
 });
 
+/** Friendly labels for agent tool steps. */
+const AGENT_TOOL_LABELS: Record<string, string> = {
+  generate_funnel: "Building funnel",
+  list_funnels: "Checking your funnels",
+  set_funnel_status: "Publishing funnel",
+  delete_funnel: "Deleting funnel",
+  list_leads: "Checking new leads",
+  claim_lead: "Claiming lead",
+  list_prospects: "Checking pipeline",
+  billing_status: "Checking billing",
+  affiliate_info: "Checking affiliate stats",
+};
+
+const AGENT_SYSTEM = `You are the AIU Agent — an AI worker inside the AIU app that gets things done step by step, visibly, like a capable assistant working through a checklist the user can watch.
+
+The user gives you a goal. You break it into steps and execute them one at a time using your tools.
+
+RULES:
+- Before each tool call, write a line starting with "STEP:" describing in plain, friendly words what you are about to do (e.g. "STEP: Building your gym lead funnel"). Keep it under 12 words.
+- Do ONE tool call per step. After each tool result, decide the next step.
+- Maximum 8 steps. If you cannot finish in 8, summarize what is done and what is left.
+- When the goal is complete, write a final summary starting with "DONE:" — include any links, IDs, or concrete results the user needs. Keep it concise.
+- Never invent data. Only report what the tools actually returned.
+- If the goal is unclear or impossible with your tools, say so plainly starting with "DONE:" and suggest what to ask instead.`;
+
+/**
+ * Agent mode: the AI works through a goal step by step, streaming visible
+ * progress (SSE) so the user can watch it work like a human assistant.
+ */
+keystone.post("/api/assistant/agent", requireUser, requireSub, async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  const user = c.get("user");
+  const goal = typeof body.goal === "string" ? body.goal.trim().slice(0, 1000) : "";
+  if (!goal) return c.json({ error: "Tell the agent what to get done." }, 400);
+  if (!process.env.ANTHROPIC_API_KEY) return c.json({ error: "AI is not configured yet." }, 503);
+
+  const quota = await aiQuota(user.id, c.get("isAdmin"));
+  if (!quota.ok) return c.json({ error: quota.error, limitHit: quota.limitHit }, 429);
+
+  const stream = new ReadableStream({
+    async start(controller) {
+      const send = (obj: any) => controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(obj)}\n\n`));
+      const callAnthropic = async (msgs: any[]) => {
+        const q = await aiQuota(user.id, c.get("isAdmin"));
+        if (!q.ok) throw { status: 429, error: q.error };
+        const r = await fetch("https://api.anthropic.com/v1/messages", {
+          method: "POST",
+          headers: { "x-api-key": process.env.ANTHROPIC_API_KEY!, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+          body: JSON.stringify({ model: AI_MODEL, max_tokens: 4000, system: AGENT_SYSTEM, tools: ASSISTANT_TOOLS, messages: msgs }),
+        });
+        if (!r.ok) throw { status: 502, error: "The AI service had a problem. Try again in a moment." };
+        return r.json();
+      };
+
+      try {
+        send({ type: "step", text: "Understanding your goal" });
+        const messages: any[] = [{ role: "user", content: `Goal: ${goal}` }];
+        let done = false;
+        for (let i = 0; i < 8 && !done; i++) {
+          const data: any = await callAnthropic(messages);
+          const blocks = data.content ?? [];
+          const texts = blocks.filter((b: any) => b.type === "text").map((b: any) => b.text).join("\n");
+          for (const line of texts.split("\n")) {
+            const m = line.match(/^STEP:\s*(.+)/i);
+            if (m) send({ type: "step", text: m[1].trim().slice(0, 120) });
+          }
+          const doneMatch = texts.match(/^DONE:\s*([\s\S]*)/im);
+          const toolUses = blocks.filter((b: any) => b.type === "tool_use");
+          if (doneMatch && !toolUses.length) {
+            send({ type: "done", text: doneMatch[1].trim().slice(0, 4000) });
+            done = true;
+            break;
+          }
+          if (!toolUses.length) {
+            const summary = texts.replace(/^STEP:.*$/gim, "").trim();
+            send({ type: "done", text: summary.slice(0, 4000) || "Finished." });
+            done = true;
+            break;
+          }
+          const results = [];
+          for (const tu of toolUses) {
+            const label = AGENT_TOOL_LABELS[tu.name] || "Working";
+            send({ type: "tool", text: label });
+            const out = await runAssistantTool(tu.name, tu.input ?? {}, user.id);
+            results.push({ type: "tool_result", tool_use_id: tu.id, content: JSON.stringify(out).slice(0, 8000) });
+            send({ type: "tool_done", text: label });
+          }
+          messages.push({ role: "assistant", content: blocks });
+          messages.push({ role: "user", content: results });
+        }
+        if (!done) send({ type: "done", text: "I ran out of steps. Ask me to continue and I'll pick up where I left off." });
+      } catch (e: any) {
+        send({ type: "error", text: e?.error || "The agent hit a problem. Try again." });
+      }
+      controller.close();
+    },
+  });
+  return new Response(stream, {
+    headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", "Connection": "keep-alive" },
+  });
+});
+
 /** Today's AI usage for the chat UI. */
 keystone.get("/api/assistant/limits", requireUser, async (c) => {
   const user = c.get("user");
