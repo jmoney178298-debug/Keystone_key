@@ -120,10 +120,18 @@ async function affiliateRevenueCents(affiliateId: number): Promise<number> {
   return r?.total ?? 0;
 }
 
-/** Effective commission rate: partner 40%, lifetime-locked elites 50%, else revenue tiers from 15%. */
+/** Effective commission rate: owner 50%, partner 40%, lifetime-locked elites 50%, else revenue tiers from 15%. */
 async function affiliateRateFor(aff: typeof affiliates.$inferSelect): Promise<number> {
   if (aff.tier === "partner") return PARTNER_RATE;
   if (aff.elite) return 0.50;
+  // The owner always earns the top rate on their own affiliate account.
+  if (OWNER_EMAIL) {
+    try {
+      const rows = await db.execute(sql`select email from user where id = ${aff.userId}`);
+      const email = (rows as any[])[0]?.email;
+      if (email && String(email).toLowerCase() === OWNER_EMAIL) return 0.50;
+    } catch {}
+  }
   const rev = await affiliateRevenueCents(aff.id);
   for (const t of AFFILIATE_TIERS) if (rev >= t.atCents) return t.rate;
   return AFFILIATE_RATE;
