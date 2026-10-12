@@ -493,6 +493,49 @@ async function uniqueSlug(base: string) {
 const escHtml = (s: unknown) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]!));
 
 /** Server-rendered landing page from the AI's structured funnel JSON. */
+/** Video funnel page: VSL-style layout with a video embed slot, sticky CTA, and lead form below. */
+function renderVideoFunnelPage(d: {
+  title: string; headline: string; subhead: string; cta: string;
+  bullets: string[]; sections: { h: string; p: string }[]; formTitle: string;
+  videoUrl?: string;
+}, slug: string) {
+  const bullets = (Array.isArray(d.bullets) ? d.bullets : []).slice(0, 6).map((b) => `<li>${escHtml(b)}</li>`).join("");
+  const sections = (Array.isArray(d.sections) ? d.sections : []).slice(0, 4).map((s) =>
+    `<section class="w"><h2>${escHtml(s.h)}</h2><p>${escHtml(s.p)}</p></section>`).join("");
+  const video = d.videoUrl
+    ? `<div class="vid"><iframe src="${escHtml(d.videoUrl)}" frameborder="0" allow="accelerometer; autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe></div>`
+    : `<div class="vid placeholder"><div><p style="font-size:18px;font-weight:700;margin:0 0 8px">Your video goes here</p><p style="opacity:.7;margin:0;font-size:15px">Paste a YouTube, Loom, or Vimeo link when you edit this funnel and it will play right here.</p></div></div>`;
+  return `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escHtml(d.title)}</title><style>
+*{box-sizing:border-box}body{margin:0;font:17px/1.6 system-ui,sans-serif;color:#0B0F1A;background:#0B0F1A}
+.h{padding:9vh 5vw 4vh;text-align:center;color:#fff}.h h1{font-size:clamp(32px,6vw,60px);line-height:1.1;margin:0 0 14px;letter-spacing:-.03em}.h p{font-size:19px;max-width:640px;margin:0 auto;opacity:.85}
+.vid{max-width:860px;margin:4vh auto;padding:0 5vw}.vid iframe{width:100%;aspect-ratio:16/9;border-radius:16px;box-shadow:0 20px 60px rgba(0,0,0,.5)}
+.vid.placeholder>div{background:#141B30;border:2px dashed #2A3350;border-radius:16px;aspect-ratio:16/9;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#fff;text-align:center;padding:20px}
+.cta-row{text-align:center;padding:3vh 5vw}.b{display:inline-block;background:#19E6B4;color:#0B0F1A;padding:15px 38px;border-radius:999px;text-decoration:none;font-weight:800;font-size:18px}
+ul.ben{list-style:none;padding:4vh 5vw 2vh;display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;max-width:1000px;margin:0 auto}
+ul.ben li{background:#141B30;color:#fff;border-radius:14px;padding:16px;font-weight:600}
+.w{padding:5vh 5vw;max-width:860px;margin:0 auto;color:#fff}.w h2{font-size:28px;margin:0 0 12px;letter-spacing:-.02em}.w p{color:#9AA3B8;max-width:680px}
+#leadform{padding:8vh 5vw;background:#F4F6FA;color:#0B0F1A;text-align:center}#leadform h2{font-size:32px;margin:0 0 8px}#leadform p{color:#5B6475;margin:0 0 18px}
+#leadform form{display:grid;gap:10px;max-width:480px;margin:0 auto}#leadform input{padding:13px;border-radius:10px;border:1px solid #D5DAE5;font-size:16px}
+#leadform button{padding:15px;border-radius:999px;border:0;background:#4F5BFF;color:#fff;font-weight:800;font-size:17px;cursor:pointer}
+#leadform .ok{display:none;background:#E6FBF4;border:1px solid #19E6B4;border-radius:12px;padding:16px;max-width:480px;margin:0 auto}
+footer{padding:22px 5vw;font-size:13px;color:#5B6475;text-align:center;background:#0B0F1A}
+.sticky{position:fixed;bottom:0;left:0;right:0;background:rgba(11,15,26,.95);backdrop-filter:blur(8px);padding:12px 5vw;display:flex;align-items:center;justify-content:space-between;gap:12px;z-index:50}
+.sticky span{color:#fff;font-weight:700;font-size:15px}.sticky a{background:#19E6B4;color:#0B0F1A;padding:10px 24px;border-radius:999px;text-decoration:none;font-weight:800;font-size:15px;white-space:nowrap}
+body{padding-bottom:76px}
+</style></head><body>
+<div class="h"><h1>${escHtml(d.headline)}</h1><p>${escHtml(d.subhead)}</p></div>
+${video}
+<div class="cta-row"><a class="b" href="#leadform">${escHtml(d.cta || "Get started")}</a></div>
+<ul class="ben">${bullets}</ul>${sections}
+<section id="leadform"><h2>${escHtml(d.formTitle || "Get your free quote")}</h2><p>Watch the video, then drop your details and we will be in touch fast.</p>
+<form id="lf"><input name="name" required placeholder="Full name"><input name="email" required type="email" placeholder="Email"><input name="phone" placeholder="Phone (optional)"><div style="display:grid;grid-template-columns:1fr 1fr;gap:10px"><input name="city" placeholder="City"><input name="state" placeholder="State"></div><button type="submit">${escHtml(d.cta || "Claim my free quote")}</button></form>
+<div class="ok" id="lok">Thanks — your request is in. We will reach out shortly.</div></section>
+<div class="sticky"><span>${escHtml(d.headline).slice(0, 60)}</span><a href="#leadform">${escHtml(d.cta || "Get started")}</a></div>
+<footer>Powered by AIU funnels</footer>
+<script>document.getElementById('lf').addEventListener('submit',async e=>{e.preventDefault();const f=e.target,d={};new FormData(f).forEach((v,k)=>d[k]=v);const r=await fetch('/api/funnels/${slug}/leads',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(d)});if(r.ok){document.getElementById('lf').style.display='none';document.getElementById('lok').style.display='block'}else{const j=await r.json().catch(()=>({}));alert(j.error||'Something went wrong.')}});<\/script>
+</body></html>`;
+}
+
 function renderFunnelPage(d: {
   title: string; headline: string; subhead: string; cta: string;
   bullets: string[]; sections: { h: string; p: string }[]; formTitle: string;
@@ -534,11 +577,13 @@ keystone.post("/api/funnels/generate", requireUser, requireSub, async (c) => {
   const b = await c.req.json().catch(() => ({}));
   const industry = clean(b.industry, 80);
   const business = clean(b.business, 120) || industry;
+  const kind = b.kind === "video" ? "video" : "standard";
+  const videoUrl = clean(b.videoUrl, 500) || undefined;
   if (!industry) return c.json({ error: "industry is required" }, 400);
   const blocked = await aiLimitHit(c);
   if (blocked) return blocked;
   try {
-    const { row, url } = await aiFunnelData(c.get("user").id, industry, business);
+    const { row, url } = await aiFunnelData(c.get("user").id, industry, business, kind, videoUrl);
     return c.json({ ...row, url }, 201);
   } catch (e: any) {
     return c.json({ error: e?.error || "Could not generate the funnel. Try again." }, e?.status ?? 502);
@@ -919,7 +964,7 @@ async function aiQuota(userId: string, isAdmin: boolean): Promise<{ ok: boolean;
 const FUNNEL_SYSTEM = JSON_ONLY + NO_HYPE + "You build a lead-capture funnel for a local service business. The user gives an industry and business name. Return {\"title\",\"headline\",\"subhead\",\"cta\",\"bullets\":[4 to 6 short benefit strings],\"sections\":[exactly 3 objects {\"h\",\"p\"}],\"formTitle\",\"adAngles\":{\"google\":{\"headlines\":[3 to 5 strings, max 30 characters each],\"descriptions\":[2 strings, max 90 characters each]},\"facebook\":string}}. Copy must be honest and specific: no fake testimonials, no invented statistics, no guaranteed outcomes.";
 
 /** Generate funnel page data with the AI, store it, and return the row + URL. Throws { status, error }. */
-async function aiFunnelData(userId: string, industry: string, business: string) {
+async function aiFunnelData(userId: string, industry: string, business: string, kind: string = "standard", videoUrl?: string) {
   if (!process.env.ANTHROPIC_API_KEY) throw { status: 503, error: "AI is not configured yet." };
   let data: any;
   try {
@@ -946,16 +991,36 @@ async function aiFunnelData(userId: string, industry: string, business: string) 
   }
   if (!data || typeof data.headline !== "string") throw { status: 502, error: "The AI returned an unusable funnel. Try again." };
   const slug = await uniqueSlug(`${business} ${industry}`);
-  const html = renderFunnelPage({
+  const isVideo = kind === "video";
+  const render = isVideo ? renderVideoFunnelPage : renderFunnelPage;
+  const html = render({
     title: String(data.title || business), headline: data.headline, subhead: String(data.subhead || ""),
     cta: String(data.cta || "Get started"), bullets: data.bullets || [], sections: data.sections || [],
     formTitle: String(data.formTitle || "Get your free quote"),
+    ...(isVideo && videoUrl ? { videoUrl } : {}),
   }, slug);
   const [row] = await db.insert(funnels).values({
     userId, slug, industry, title: String(data.title || business),
     html, adAngles: data.adAngles ?? {}, status: "draft",
   }).returning();
   return { row, url: `${APP_URL}/f/${slug}` };
+}
+
+/** Write a video ad script with the AI: hooks, timed script, on-screen cues, CTA. */
+async function aiVideoAdScript(product: string, audience: string, format: string, length: string): Promise<string> {
+  if (!process.env.ANTHROPIC_API_KEY) throw new Error("AI is not configured yet.");
+  const r = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: { "x-api-key": process.env.ANTHROPIC_API_KEY!, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+    body: JSON.stringify({
+      model: AI_MODEL, max_tokens: 2000,
+      system: "You write short-form video ad scripts. Be direct, punchy, honest — no hype, no fake claims, no invented testimonials. Format the output as:\n\nHOOKS (3 options, first 3 seconds each)\n\nSCRIPT (with [0:00] timestamps, spoken lines in quotes, (on-screen text) and [B-roll/visual] cues)\n\nCTA (exact closing line)\n\nKeep it tight and speakable.",
+      messages: [{ role: "user", content: `Product: ${product}\nAudience: ${audience}\nFormat: ${format}\nLength: ${length}` }],
+    }),
+  });
+  if (!r.ok) throw new Error("The AI service had a problem. Try again in a moment.");
+  const j: any = await r.json();
+  return (j.content ?? []).filter((x: any) => x.type === "text").map((x: any) => x.text).join("\n").trim();
 }
 
 const ASSISTANT_SYSTEM = `You are the AIU assistant — the user's personal AI inside the AIU app. Think of yourself as their right hand: sharp, warm, and straight to the point.
@@ -984,7 +1049,7 @@ RULES:
 - If you don't know something, say so. Never bluff.`;
 
 const ASSISTANT_TOOLS: any[] = [
-  { name: "generate_funnel", description: "Generate an AI lead-capture funnel page for an industry and business name. Saves it as a draft and returns its id, title and shareable URL.", input_schema: { type: "object", properties: { industry: { type: "string", description: "e.g. roofers, plumbers, dentists" }, business: { type: "string", description: "Business name (optional)" } }, required: ["industry"] } },
+  { name: "generate_funnel", description: "Generate an AI lead-capture funnel page for an industry and business name. Saves it as a draft and returns its id, title and shareable URL. Kind can be 'standard' (classic layout) or 'video' (VSL-style page with a video embed slot, sticky CTA).", input_schema: { type: "object", properties: { industry: { type: "string", description: "e.g. roofers, plumbers, dentists" }, business: { type: "string", description: "Business name (optional)" }, kind: { type: "string", enum: ["standard", "video"], description: "Funnel layout (default standard)" }, videoUrl: { type: "string", description: "YouTube/Loom/Vimeo embed URL for video funnels (optional)" } }, required: ["industry"] } },
   { name: "list_funnels", description: "List the user's funnels: id, title, industry, status (draft/live), url, updated date.", input_schema: { type: "object", properties: {} } },
   { name: "set_funnel_status", description: "Publish a funnel (status live) or unpublish it (status draft) by id.", input_schema: { type: "object", properties: { id: { type: "number" }, status: { type: "string", enum: ["live", "draft"] } }, required: ["id", "status"] } },
   { name: "delete_funnel", description: "Permanently delete a funnel and its captured leads by id.", input_schema: { type: "object", properties: { id: { type: "number" } }, required: ["id"] } },
@@ -996,6 +1061,7 @@ const ASSISTANT_TOOLS: any[] = [
   { name: "list_blg_articles", description: "List BabyLoveGrowth SEO article summaries (id, title, etc.). Use when the user wants to browse available articles.", input_schema: { type: "object", properties: { limit: { type: "number", description: "How many to list (default 10, max 50)" }, offset: { type: "number", description: "Skip this many (default 0)" } } } },
   { name: "get_blg_article", description: "Get one full BabyLoveGrowth article by id, with full content_html and content_markdown. Get the id from list_blg_articles first.", input_schema: { type: "object", properties: { id: { type: "string", description: "Article id from the list" } }, required: ["id"] } },
   { name: "sync_blg_articles", description: "Sync BabyLoveGrowth articles into the site blog (/blog). Fetches the latest articles and upserts them by slug. Use when the user wants the newest articles published.", input_schema: { type: "object", properties: {} } },
+  { name: "write_video_ad", description: "Write a video ad script for a product or offer: hook options, full script with timestamps, on-screen text cues, and CTA. Formats: ugc (phone-style authentic), vsl (direct sales), testimonial. Use when the user wants ad creative for video.", input_schema: { type: "object", properties: { product: { type: "string", description: "What is being sold" }, audience: { type: "string", description: "Who it's for (optional)" }, format: { type: "string", enum: ["ugc", "vsl", "testimonial"], description: "Ad style (default ugc)" }, length: { type: "string", enum: ["15s", "30s", "60s"], description: "Target length (default 30s)" } }, required: ["product"] } },
 ];
 
 /** Execute one assistant tool call. Always returns a JSON-able object (never throws). */
@@ -1006,9 +1072,11 @@ async function runAssistantTool(name: string, input: any, userId: string): Promi
         const industry = clean(input?.industry, 80);
         if (!industry) return { error: "I need an industry to build the funnel." };
         const business = clean(input?.business, 120) || industry;
+        const kind = input?.kind === "video" ? "video" : "standard";
+        const videoUrl = clean(input?.videoUrl, 500) || undefined;
         try {
-          const { row, url } = await aiFunnelData(userId, industry, business);
-          return { id: row.id, title: row.title, industry: row.industry, status: row.status, url };
+          const { row, url } = await aiFunnelData(userId, industry, business, kind, videoUrl);
+          return { id: row.id, title: row.title, industry: row.industry, kind, status: row.status, url };
         } catch (e: any) { return { error: e?.error || "Could not generate the funnel." }; }
       }
       case "list_funnels": {
@@ -1093,6 +1161,15 @@ async function runAssistantTool(name: string, input: any, userId: string): Promi
       case "sync_blg_articles": {
         const result = await blgSyncArticles(db, blgPosts, 50);
         return { synced: true, ...result, blog: `${APP_URL}/blog` };
+      }
+      case "write_video_ad": {
+        const product = clean(input?.product, 200);
+        if (!product) return { error: "Tell me what the ad is selling." };
+        const audience = clean(input?.audience, 200) || "general audience";
+        const format = ["ugc", "vsl", "testimonial"].includes(input?.format) ? input.format : "ugc";
+        const length = ["15s", "30s", "60s"].includes(input?.length) ? input.length : "30s";
+        const script = await aiVideoAdScript(product, audience, format, length);
+        return { product, audience, format, length, script };
       }
       case "get_blg_article": {
         const id = String(input.id ?? "").trim();
