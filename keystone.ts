@@ -12,7 +12,7 @@ import crypto from "node:crypto";
 import { db, sqlite } from "./db";
 import { auth } from "./auth";
 import { affiliates, aiUsage, assistantConversations, assistantMessages, blgPosts, funnels, funnelLeads, ideas, leads, lifetimeAccess, limitHits, partnerAccess, prospects, referrals, stripeEvents, subscriptions } from "./schema";
-import { blgConfigured, blgGetArticle, blgListArticles, blgSyncArticles } from "./blg";
+import { blgConfigured, blgGetArticle, blgListArticles, blgSyncArticles, blgUpsertArticle } from "./blg";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
 const OWNER_EMAIL = (process.env.OWNER_EMAIL ?? "").trim().toLowerCase();
@@ -633,6 +633,46 @@ keystone.post("/api/blg/sync", requireUser, requireAdmin, async (c) => {
     return c.json({ ok: true, ...result });
   } catch (e: any) {
     return c.json({ ok: false, error: e?.message || "Sync failed." }, 502);
+  }
+});
+
+/**
+ * BabyLoveGrowth webhook: BLG pings this when an article is published/updated.
+ * Public endpoint, secured by HMAC-SHA256 signature (X-BLG-Signature header)
+ * over the raw body using BLG_WEBHOOK_SECRET. Give that secret to BabyLoveGrowth
+ * when you register the webhook URL: https://www.getaiu.online/api/blg/webhook
+ * Expected payload: { type: "article.published" | "article.updated" | "article.deleted",
+ *                     data: { id, slug?, ... } }
+ * Idempotent: replays upsert by slug, so retries are harmless.
+ */
+keystone.post("/api/blg/webhook", async (c) => {
+  const secret = process.env.BLG_WEBHOOK_SECRET;
+  if (!secret) return c.json({ error: "Blog webhook is not configured yet." }, 503);
+  const raw = await c.req.text();
+  const sig = c.req.header("x-blg-signature") ?? "";
+  let ok = false;
+  try {
+    const expected = crypto.createHmac("sha256", secret).update(raw).digest("hex");
+    ok = sig.length === expected.length && crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected));
+  } catch { ok = false; }
+  if (!ok) return c.json({ error: "Bad signature." }, 401);
+  let event: any;
+  try { event = JSON.parse(raw); } catch { return c.json({ error: "Bad JSON." }, 400); }
+  const type = String(event.type ?? event.event ?? "");
+  const data = event.data ?? event.article ?? {};
+  const id = data.id ?? data.article_id;
+  try {
+    if ((type === "article.published" || type === "article.updated") && id != null) {
+      const result = await blgUpsertArticle(db, blgPosts, id);
+      return c.json({ ok: true, result, slug: data.slug ?? null });
+    }
+    if (type === "article.deleted" && data.slug) {
+      await db.delete(blgPosts).where(eq(blgPosts.slug, String(data.slug)));
+      return c.json({ ok: true, result: "deleted" });
+    }
+    return c.json({ ok: true, result: "ignored", type });
+  } catch (e: any) {
+    return c.json({ ok: false, error: e?.message || "Webhook failed." }, 502);
   }
 });
 

@@ -57,7 +57,22 @@ app.get("/", (c) => c.html(fs.readFileSync("index.html", "utf8")));
 
 // SEO/GEO discoverability files
 app.get("/robots.txt", (c) => c.body(fs.readFileSync("robots.txt", "utf8"), 200, { "Content-Type": "text/plain", "Cache-Control": "public, max-age=86400" }));
-app.get("/sitemap.xml", (c) => c.body(fs.readFileSync("sitemap.xml", "utf8"), 200, { "Content-Type": "application/xml", "Cache-Control": "public, max-age=86400" }));
+app.get("/sitemap.xml", async (c) => {
+  // Dynamic sitemap: homepage + every synced blog post.
+  let urls = `  <url><loc>https://www.getaiu.online/</loc><lastmod>2026-10-12</lastmod><changefreq>weekly</changefreq><priority>1.0</priority></url>\n`;
+  urls += `  <url><loc>https://www.getaiu.online/blog</loc><changefreq>daily</changefreq><priority>0.8</priority></url>\n`;
+  try {
+    const { db } = await import("./db");
+    const { blgPosts } = await import("./schema");
+    const posts = await db.select({ slug: blgPosts.slug, updatedAt: blgPosts.updatedAt }).from(blgPosts);
+    for (const p of posts) {
+      const lastmod = p.updatedAt ? new Date(p.updatedAt).toISOString().slice(0, 10) : "2026-10-12";
+      urls += `  <url><loc>https://www.getaiu.online/blog/${p.slug}</loc><lastmod>${lastmod}</lastmod><changefreq>weekly</changefreq><priority>0.7</priority></url>\n`;
+    }
+  } catch { /* sitemap still serves the homepage */ }
+  const xml = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls}</urlset>`;
+  return c.body(xml, 200, { "Content-Type": "application/xml", "Cache-Control": "public, max-age=3600" });
+});
 app.get("/llms.txt", (c) => c.body(fs.readFileSync("llms.txt", "utf8"), 200, { "Content-Type": "text/plain", "Cache-Control": "public, max-age=86400" }));
 
 const port = Number(process.env.PORT ?? 3000);
