@@ -11,8 +11,9 @@ import Stripe from "stripe";
 import crypto from "node:crypto";
 import { db, sqlite } from "./db";
 import { auth } from "./auth";
-import { affiliates, aiUsage, assistantConversations, assistantMessages, blgPosts, funnels, funnelLeads, ideas, leads, lifetimeAccess, limitHits, partnerAccess, prospects, referrals, stripeEvents, subscriptions } from "./schema";
+import { affiliates, aiUsage, assistantConversations, assistantMessages, blgPosts, funnels, funnelLeads, ideas, leads, lifetimeAccess, limitHits, partnerAccess, prospects, referrals, stripeEvents, subscriptions, videoJobs } from "./schema";
 import { blgConfigured, blgGetArticle, blgListArticles, blgSyncArticles, blgUpsertArticle } from "./blg";
+import { heygenConfigured, heygenGenerateVideo, heygenVideoStatus } from "./heygen";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
 const OWNER_EMAIL = (process.env.OWNER_EMAIL ?? "").trim().toLowerCase();
@@ -1062,6 +1063,9 @@ const ASSISTANT_TOOLS: any[] = [
   { name: "get_blg_article", description: "Get one full BabyLoveGrowth article by id, with full content_html and content_markdown. Get the id from list_blg_articles first.", input_schema: { type: "object", properties: { id: { type: "string", description: "Article id from the list" } }, required: ["id"] } },
   { name: "sync_blg_articles", description: "Sync BabyLoveGrowth articles into the site blog (/blog). Fetches the latest articles and upserts them by slug. Use when the user wants the newest articles published.", input_schema: { type: "object", properties: {} } },
   { name: "write_video_ad", description: "Write a video ad script for a product or offer: hook options, full script with timestamps, on-screen text cues, and CTA. Formats: ugc (phone-style authentic), vsl (direct sales), testimonial. Use when the user wants ad creative for video.", input_schema: { type: "object", properties: { product: { type: "string", description: "What is being sold" }, audience: { type: "string", description: "Who it's for (optional)" }, format: { type: "string", enum: ["ugc", "vsl", "testimonial"], description: "Ad style (default ugc)" }, length: { type: "string", enum: ["15s", "30s", "60s"], description: "Target length (default 30s)" } }, required: ["product"] } },
+  { name: "make_spokesperson_video", description: "Generate a real AI spokesperson video with HeyGen: a talking-head avatar speaks your script. Returns a job id — the video takes a few minutes to render, then check_video_status for the finished MP4. Formats: landscape (YouTube/site), portrait (TikTok/Reels/Shorts), square (Instagram).", input_schema: { type: "object", properties: { script: { type: "string", description: "Exactly what the avatar says (keep under ~300 words)" }, title: { type: "string", description: "Video title (optional)" }, format: { type: "string", enum: ["landscape", "portrait", "square"], description: "Video shape (default landscape)" } }, required: ["script"] } },
+  { name: "check_video_status", description: "Check a spokesperson video job: rendering status and the finished video URL when done.", input_schema: { type: "object", properties: { jobId: { type: "number", description: "Job id from make_spokesperson_video" } }, required: ["jobId"] } },
+  { name: "list_videos", description: "List the user's spokesperson video jobs with status and video URLs.", input_schema: { type: "object", properties: {} } },
 ];
 
 /** Execute one assistant tool call. Always returns a JSON-able object (never throws). */
@@ -1170,6 +1174,36 @@ async function runAssistantTool(name: string, input: any, userId: string): Promi
         const length = ["15s", "30s", "60s"].includes(input?.length) ? input.length : "30s";
         const script = await aiVideoAdScript(product, audience, format, length);
         return { product, audience, format, length, script };
+      }
+      case "make_spokesperson_video": {
+        if (!heygenConfigured()) return { error: "Video generation is not connected yet. The owner needs to add a HeyGen API key." };
+        const script = clean(input?.script, 2000);
+        if (!script) return { error: "Give me the script for the avatar to speak." };
+        const format = ["landscape", "portrait", "square"].includes(input?.format) ? input.format : "landscape";
+        const title = clean(input?.title, 120) || script.slice(0, 60);
+        try {
+          const { video_id } = await heygenGenerateVideo({ script, format, title });
+          const [job] = await db.insert(videoJobs).values({ userId, heygenVideoId: video_id, title, script, format, status: "queued" }).returning();
+          return { jobId: job.id, heygenVideoId: video_id, status: "queued", message: "Video is rendering — check back in a few minutes with check_video_status." };
+        } catch (e: any) { return { error: e?.message || "Could not start the video." }; }
+      }
+      case "check_video_status": {
+        const jobId = Number(input?.jobId);
+        const [job] = await db.select().from(videoJobs).where(and(eq(videoJobs.id, jobId), eq(videoJobs.userId, userId)));
+        if (!job) return { error: "Video job not found." };
+        if (job.status === "completed" && job.videoUrl) return { jobId: job.id, status: "completed", videoUrl: job.videoUrl };
+        try {
+          const s = await heygenVideoStatus(job.heygenVideoId);
+          const patch: any = { status: s.status, updatedAt: new Date() };
+          if (s.status === "completed" && s.video_url) patch.videoUrl = s.video_url;
+          if (s.status === "failed") patch.error = s.error || "Rendering failed.";
+          await db.update(videoJobs).set(patch).where(eq(videoJobs.id, job.id));
+          return { jobId: job.id, status: s.status, videoUrl: s.video_url ?? null };
+        } catch (e: any) { return { jobId: job.id, status: job.status, error: e?.message || "Status check failed." }; }
+      }
+      case "list_videos": {
+        const rows = await db.select().from(videoJobs).where(eq(videoJobs.userId, userId)).orderBy(desc(videoJobs.createdAt));
+        return rows.map((r) => ({ jobId: r.id, title: r.title, format: r.format, status: r.status, videoUrl: r.videoUrl, createdAt: r.createdAt }));
       }
       case "get_blg_article": {
         const id = String(input.id ?? "").trim();

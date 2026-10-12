@@ -183,8 +183,7 @@ export const limitHits = sqliteTable("limit_hits", {
 });
 
 /** Blog posts synced from the BabyLoveGrowth API. Upserted idempotently by slug. */
-export const blgPosts = sqliteTable("blg_posts", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
+export const blgPosts = sqliteTable("blg_posts", {  id: integer("id").primaryKey({ autoIncrement: true }),
   /** BLG article id */
   blgId: integer("blg_id"),
   /** URL slug — the idempotency key */
@@ -198,6 +197,21 @@ export const blgPosts = sqliteTable("blg_posts", {
   faqJsonLd: text("faq_json_ld"),
   languageCode: text("language_code").notNull().default("en"),
   publishedAt: integer("published_at", { mode: "timestamp" }),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+});
+
+/** HeyGen spokesperson video jobs. Status: queued → processing → completed | failed. */
+export const videoJobs = sqliteTable("video_jobs", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  userId: text("user_id").notNull(),
+  heygenVideoId: text("heygen_video_id").notNull().unique(),
+  title: text("title").notNull(),
+  script: text("script").notNull(),
+  format: text("format").notNull().default("landscape"),
+  status: text("status").notNull().default("queued"),
+  videoUrl: text("video_url"),
+  error: text("error"),
   createdAt: createdAt(),
   updatedAt: updatedAt(),
 });

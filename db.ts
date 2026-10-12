@@ -33,6 +33,7 @@ CREATE TABLE IF NOT EXISTS assistant_conversations (id integer PRIMARY KEY AUTOI
 CREATE TABLE IF NOT EXISTS assistant_messages (id integer PRIMARY KEY AUTOINCREMENT, conversation_id integer NOT NULL, role text NOT NULL, content text NOT NULL, created_at integer NOT NULL);
 CREATE TABLE IF NOT EXISTS limit_hits (id integer PRIMARY KEY AUTOINCREMENT, user_id text NOT NULL, plan text NOT NULL, created_at integer NOT NULL);
 CREATE TABLE IF NOT EXISTS blg_posts (id integer PRIMARY KEY AUTOINCREMENT, blg_id integer, slug text NOT NULL UNIQUE, title text NOT NULL, content_html text, content_markdown text, meta_description text, hero_image_url text, json_ld text, faq_json_ld text, language_code text NOT NULL DEFAULT 'en', published_at integer, created_at integer NOT NULL, updated_at integer NOT NULL);
+CREATE TABLE IF NOT EXISTS video_jobs (id integer PRIMARY KEY AUTOINCREMENT, user_id text NOT NULL, heygen_video_id text NOT NULL UNIQUE, title text NOT NULL, script text NOT NULL, format text NOT NULL DEFAULT 'landscape', status text NOT NULL DEFAULT 'queued', video_url text, error text, created_at integer NOT NULL, updated_at integer NOT NULL);
 `);
 
 // Column upgrades for databases created before these columns existed.
