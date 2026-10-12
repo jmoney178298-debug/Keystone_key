@@ -170,7 +170,20 @@ async function checkElite(aff: typeof affiliates.$inferSelect): Promise<boolean>
   return false;
 }
 
+/** Run a Stripe call, translating API errors into plain-language messages. */
+async function stripeCall<T>(fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn();
+  } catch (e: any) {
+    const msg = String(e?.message || "");
+    if (/no such price/i.test(msg)) throw { status: 502, error: "Checkout is misconfigured (price not found in Stripe). The owner has been notified." };
+    if (/invalid api key|authentication/i.test(msg)) throw { status: 502, error: "Checkout is temporarily unavailable. The owner has been notified." };
+    throw { status: 502, error: "Checkout hit a problem. Try again in a moment." };
+  }
+}
+
 keystone.post("/api/billing/checkout", requireUser, async (c) => {
+  try {
   const user = c.get("user");
   const { plan } = await c.req.json().catch(() => ({ plan: "pro" }));
   const price = PRICES[plan as string];
@@ -178,7 +191,7 @@ keystone.post("/api/billing/checkout", requireUser, async (c) => {
   const [prev] = await db.select().from(subscriptions).where(eq(subscriptions.userId, user.id));
   const trialDays = prev?.stripeSubscriptionId ? 0 : Number(process.env.TRIAL_DAYS ?? 7); // one free trial per account
   const affCode = await referralCodeFor(c, user.id);
-  const session = await stripe.checkout.sessions.create({
+  const session = await stripeCall(async () => stripe.checkout.sessions.create({
     mode: "subscription",
     customer: await customerFor(user),
     line_items: [{ price, quantity: 1 }],
@@ -188,8 +201,9 @@ keystone.post("/api/billing/checkout", requireUser, async (c) => {
     allow_promotion_codes: true,
     success_url: `${APP_URL}/app/billing?status=success`,
     cancel_url: `${APP_URL}/app/billing?status=cancelled`,
-  });
+  }));
   return c.json({ url: session.url });
+  } catch (e: any) { return c.json({ error: e?.error || "Checkout failed." }, e?.status ?? 500); }
 });
 
 keystone.post("/api/billing/portal", requireUser, async (c) => {
@@ -204,12 +218,13 @@ keystone.post("/api/billing/portal", requireUser, async (c) => {
 
 /** One-time purchase: lifetime access. Needs STRIPE_PRICE_LIFETIME in env. */
 keystone.post("/api/billing/lifetime", requireUser, async (c) => {
+  try {
   const price = process.env.STRIPE_PRICE_LIFETIME;
   if (!price) return c.json({ error: "Lifetime purchase is not configured yet." }, 400);
   const [life] = await db.select().from(lifetimeAccess).where(eq(lifetimeAccess.userId, c.get("user").id));
   if (life) return c.json({ error: "You already have lifetime access." }, 400);
   const affCode = await referralCodeFor(c, c.get("user").id);
-  const session = await stripe.checkout.sessions.create({
+  const session = await stripeCall(async () => stripe.checkout.sessions.create({
     mode: "payment",
     customer: await customerFor(c.get("user")),
     line_items: [{ price, quantity: 1 }],
@@ -217,18 +232,20 @@ keystone.post("/api/billing/lifetime", requireUser, async (c) => {
     metadata: { kind: "lifetime", ...(affCode ? { affCode } : {}) },
     success_url: `${APP_URL}/app/billing?status=success`,
     cancel_url: `${APP_URL}/app/billing?status=cancelled`,
-  });
+  }));
   return c.json({ url: session.url });
+  } catch (e: any) { return c.json({ error: e?.error || "Checkout failed." }, e?.status ?? 500); }
 });
 
 /** Yearly Partner subscription. Needs STRIPE_PRICE_PARTNER_YEARLY in env. */
 keystone.post("/api/billing/partner", requireUser, async (c) => {
+  try {
   const price = process.env.STRIPE_PRICE_PARTNER_YEARLY;
   if (!price) return c.json({ error: "Partner checkout is not configured yet." }, 400);
   const [p] = await db.select().from(partnerAccess).where(eq(partnerAccess.userId, c.get("user").id));
   if (p) return c.json({ error: "You are already a partner." }, 400);
   const affCode = await referralCodeFor(c, c.get("user").id);
-  const session = await stripe.checkout.sessions.create({
+  const session = await stripeCall(async () => stripe.checkout.sessions.create({
     mode: "subscription",
     customer: await customerFor(c.get("user")),
     line_items: [{ price, quantity: 1 }],
@@ -238,8 +255,9 @@ keystone.post("/api/billing/partner", requireUser, async (c) => {
     allow_promotion_codes: true,
     success_url: `${APP_URL}/app/billing?status=success`,
     cancel_url: `${APP_URL}/app/billing?status=cancelled`,
-  });
+  }));
   return c.json({ url: session.url });
+  } catch (e: any) { return c.json({ error: e?.error || "Checkout failed." }, e?.status ?? 500); }
 });
 
 keystone.get("/api/billing/status", requireUser, async (c) => {
