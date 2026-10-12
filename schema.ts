@@ -169,3 +169,12 @@ export const assistantMessages = sqliteTable("assistant_messages", {
   content: text("content").notNull(),
   createdAt: createdAt(),
 });
+
+/** Times a user hit their daily AI limit (upgrade-signal for the owner). */
+export const limitHits = sqliteTable("limit_hits", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  userId: text("user_id").notNull(),
+  /** plan the user was on when they hit the wall */
+  plan: text("plan").notNull(),
+  createdAt: createdAt(),
+});

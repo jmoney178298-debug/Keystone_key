@@ -1,6 +1,12 @@
 <!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8"><title>AIU: Amp It Up</title>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="manifest" href="/pwa/manifest.json">
+<meta name="theme-color" content="#0B0F1A">
+<link rel="apple-touch-icon" href="/pwa/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="AIU">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
 <style>
 :root{--ink:#0B0F1A;--panel:#141B30;--panel2:#1B2440;--line:rgba(255,255,255,.09);--paper:#EDEFF5;--white:#fff;
@@ -135,7 +141,8 @@ async function sendChat(prefill){
   $('#csend').disabled=true;
   const r=await api('/api/assistant/chat',{message:text,conversationId:chatId,artifact});
   $('#thinking')?.remove(); $('#csend').disabled=false;
-  if(r.status==402){msgs.push({role:'assistant',content:'Your subscription is not active. Open the Billing tab to upgrade, then come back and ask me again.'});}
+  if(r.status==402){msgs.push({role:'assistant',content:'Your subscription is not active.'});showUpgrade(null,'inactive');}
+  else if(r.status==429&&r.data.limitHit){msgs.push({role:'assistant',content:r.data.error||'Daily limit reached.'});showUpgrade(r.data.plan,r.data.limit);}
   else if(!r.ok){msgs.push({role:'assistant',content:r.data.error||'Something went wrong. Try again.'});}
   else{
     chatId=r.data.conversationId||chatId;
@@ -265,14 +272,15 @@ function vAdmin(){return `<div class="fade"><h1>Ad<i>min</i></h1><p class="sub">
 async function admLoad(){
   const g=async p=>{const r=await api(p);if(!r.ok)throw 0;return r.data};
   try{
-    const [o,subs,ls,affs,refs,ideaz]=await Promise.all([g('/api/admin/overview'),g('/api/admin/subscribers'),g('/api/admin/leads'),g('/api/admin/affiliates'),g('/api/admin/referrals?status=pending'),g('/api/admin/ideas')]);
+    const [o,subs,ls,affs,refs,ideaz,hits]=await Promise.all([g('/api/admin/overview'),g('/api/admin/subscribers'),g('/api/admin/leads'),g('/api/admin/affiliates'),g('/api/admin/referrals?status=pending'),g('/api/admin/ideas'),g('/api/admin/limit-hits')]);
     const c=s=>(o.subscribers.find(x=>x.status==s)||{n:0}).n;
     $('#adm').innerHTML=`<div class="grid"><div class="card"><label>Trialing</label><div class="stat mono">${c('trialing')}</div></div><div class="card"><label>Paying</label><div class="stat mono">${c('active')}</div></div><div class="card"><label>New demo requests</label><div class="stat mono">${o.newInboundLeads}</div></div><div class="card"><label>Won revenue</label><div class="stat mono">${money(o.wonRevenue)}</div></div></div>
     <div class="card"><b>Pending referral payouts</b>${refs.map(r=>`<div class="row" style="padding:8px 0;border-top:1px solid var(--line);justify-content:space-between"><span class="pill">${esc(r.kind)}</span><span class="mono">${usd(r.commissionCents)}</span><button class="btn ghost" onclick="refPay(${r.id})">Mark paid</button></div>`).join('')||'<p style="color:var(--stone)">None pending.</p>'}</div>
     <div class="card"><b>Affiliates</b>${affs.map(a=>`<div class="row" style="padding:8px 0;border-top:1px solid var(--line);justify-content:space-between"><span class="mono">${esc(a.code)}</span><span class="pill">${esc(a.tier)} · ${esc(a.status)}${a.elite?' · <b style="color:var(--lime)">50% LIFE</b>':''}</span><span class="mono">${usd(a.earnedCents)}</span><span class="row">${a.elite?`<button class="btn danger" onclick="affElite(${a.id},0)">Revoke 50%</button>`:`<button class="btn ghost" onclick="affElite(${a.id},1)">Grant 50%</button>`}${a.status=='active'?`<button class="btn danger" onclick="affStatus(${a.id},'paused')">Pause</button>`:`<button class="btn ghost" onclick="affStatus(${a.id},'active')">Resume</button>`}</span></div>`).join('')||'<p style="color:var(--stone)">None yet.</p>'}</div>
     <div class="card"><b>Partner ideas</b>${ideaz.map(x=>`<div style="padding:8px 0;border-top:1px solid var(--line)"><b>${esc(x.title)}</b> <span class="pill">${esc(x.status)}</span><div style="color:var(--stone);font-size:13px">${esc(x.body)}</div><div class="row" style="margin-top:6px">${['reviewing','shipped','declined'].map(s=>`<button class="btn ghost" onclick="ideaStatus(${x.id},'${s}')">${s}</button>`).join('')}</div></div>`).join('')||'<p style="color:var(--stone)">None yet.</p>'}</div>
     <div class="card"><b>Demo requests</b>${ls.map(l=>`<div style="padding:8px 0;border-top:1px solid var(--line)"><b>${esc(l.name)}</b> <span class="pill">${esc(l.status)}</span><div style="color:var(--stone)">${esc(l.email)} ${esc(l.company||'')} ${esc(l.message||'')}</div><div class="row" style="margin-top:6px">${['contacted','won','lost'].map(s=>`<button class="btn ghost" onclick="admSet(${l.id},'${s}')">${s}</button>`).join('')}</div></div>`).join('')||'<p style="color:var(--stone)">None yet.</p>'}</div>
-    <div class="card"><b>Subscribers</b>${subs.map(s=>`<div class="row" style="padding:6px 0;border-top:1px solid var(--line)"><span class="mono" style="flex:1;font-size:12px">${esc(s.userId.slice(0,8))}</span><span class="pill">${esc(s.plan)}</span><span class="pill">${esc(s.status)}</span></div>`).join('')||'<p style="color:var(--stone)">No subscribers yet.</p>'}</div>`;
+    <div class="card"><b>Subscribers</b>${subs.map(s=>`<div class="row" style="padding:6px 0;border-top:1px solid var(--line)"><span class="mono" style="flex:1;font-size:12px">${esc(s.userId.slice(0,8))}</span><span class="pill">${esc(s.plan)}</span><span class="pill">${esc(s.status)}</span></div>`).join('')||'<p style="color:var(--stone)">No subscribers yet.</p>'}</div>
+    <div class="card"><b>Upgrade signals — users who hit their AI limit</b><div style="color:var(--stone);font-size:13px;margin-bottom:4px">${hits.length} total — these users are ready to upgrade.</div>${hits.slice(0,30).map(h=>`<div class="row" style="padding:6px 0;border-top:1px solid var(--line);justify-content:space-between"><span class="mono" style="font-size:12px">${esc(h.userId.slice(0,8))}</span><span class="pill">${esc(h.plan)}</span><span class="mono" style="font-size:12px;color:var(--stone)">${new Date(h.createdAt).toLocaleString()}</span></div>`).join('')||'<p style="color:var(--stone)">None yet.</p>'}</div>`;
   }catch(e){$('#adm').innerHTML='<div class="card">Owner access only.</div>'}
 }
 async function admSet(id,status){await fetch('/api/admin/leads/'+id,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({status})});admLoad()}
@@ -299,4 +307,57 @@ function render(){
   const q=new URLSearchParams(location.search).get('billing');
   if(q=='success'||q=='cancelled'){setTimeout(()=>toast(q=='success'?'Payment successful — welcome!':'Checkout was cancelled. No charge was made.'),600);history.replaceState(null,'',location.pathname)}
 })();
+
+/* ---------- Upgrade modal (fires on 402 or daily-limit hit) ---------- */
+const PLANS=[
+  {id:'basic',name:'Basic',price:'$29/mo',ai:'20 AI requests/day',lead:'10 leads/day'},
+  {id:'pro',name:'Pro',price:'$79/mo',ai:'100 AI requests/day',lead:'50 leads/day'},
+  {id:'proplus',name:'Pro+',price:'$149/mo',ai:'300 AI requests/day',lead:'200 leads/day'},
+  {id:'lifetime',name:'Lifetime',price:'$1,999 once',ai:'300 AI requests/day, forever',lead:'200 leads/day'},
+];
+function showUpgrade(plan,reason){
+  if(document.getElementById('upModal'))return;
+  const cur=PLANS.findIndex(p=>p.id===plan);
+  const next=cur>=0&&cur<PLANS.length-1?PLANS[cur+1]:PLANS[PLANS.length-1];
+  const title=reason==='inactive'?'Your plan is not active':'You hit your daily AI limit';
+  const sub=reason==='inactive'
+    ?'Pick a plan to unlock the assistant, funnels, and lead capture.'
+    :`You used all ${limits.limit} of today's AI requests on ${PLANS[cur]?.name||'your plan'}. Upgrade for more, or wait until tomorrow.`;
+  const m=document.createElement('div');m.id='upModal';
+  m.style.cssText='position:fixed;inset:0;z-index:10000;background:rgba(4,6,12,.7);display:flex;align-items:center;justify-content:center;padding:16px';
+  m.innerHTML=`<div style="background:#0D1322;border:1px solid #19E6B4;border-radius:18px;max-width:520px;width:100%;padding:24px;color:#E8EBF3">
+    <h2 style="margin:0 0 6px;font-size:22px">${title}</h2>
+    <p style="margin:0 0 18px;color:#9AA3B5;font-size:14px">${sub}</p>
+    <div style="border:1px solid #19E6B4;border-radius:12px;padding:14px 16px;margin-bottom:12px;background:rgba(25,230,180,.06)">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <strong style="font-size:16px">${next.name}</strong><span style="color:#19E6B4;font-weight:700">${next.price}</span>
+      </div>
+      <div style="font-size:13px;color:#9AA3B5">${next.ai} · ${next.lead}</div>
+      <button onclick="goBill()" style="margin-top:12px;width:100%;background:#19E6B4;border:0;color:#0B0F1A;border-radius:999px;padding:11px;font-weight:800;font-size:15px;cursor:pointer">Upgrade to ${next.name}</button>
+    </div>
+    <button onclick="goBill()" style="width:100%;background:none;border:1px solid rgba(255,255,255,.15);color:#E8EBF3;border-radius:999px;padding:10px;font-weight:600;cursor:pointer">Compare all plans</button>
+    <button onclick="document.getElementById('upModal').remove()" style="width:100%;background:none;border:0;color:#8a93a6;padding:10px;cursor:pointer;font-size:13px">Not now</button>
+  </div>`;
+  document.body.appendChild(m);
+  m.addEventListener('click',e=>{if(e.target===m)m.remove()});
+}
+function goBill(){document.getElementById('upModal')?.remove();show('bill');billLoad();}
+
+/* ---------- PWA: service worker + install banner ---------- */
+if('serviceWorker' in navigator){navigator.serviceWorker.register('/pwa/sw.js').catch(()=>{})}
+let deferredPrompt=null;
+function isIos(){return /iphone|ipad|ipod/i.test(navigator.userAgent)&&!window.MSStream}
+function isStandalone(){return window.matchMedia('(display-mode: standalone)').matches||navigator.standalone}
+window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();deferredPrompt=e;showInstall()});
+function showInstall(){
+  if(isStandalone()||document.getElementById('pwaBanner'))return;
+  const b=document.createElement('div');b.id='pwaBanner';
+  b.style.cssText='position:fixed;left:12px;right:12px;bottom:12px;z-index:9999;background:#0D1322;color:#E8EBF3;border:1px solid #19E6B4;border-radius:14px;padding:12px 14px;display:flex;gap:10px;align-items:center;box-shadow:0 10px 30px rgba(0,0,0,.5);font:500 14px Inter,system-ui';
+  const msg=isIos()?'Add AIU to your home screen: tap Share, then "Add to Home Screen".':'Install the AIU app for the full-screen experience.';
+  b.innerHTML=`<img src="/pwa/icon-192.png" alt="" style="width:40px;height:40px;border-radius:10px"><span style="flex:1">${msg}</span>${deferredPrompt?'<button id="pwaGo" style="background:#19E6B4;border:0;color:#0B0F1A;border-radius:999px;padding:8px 16px;font-weight:700;cursor:pointer">Install</button>':''}<button id="pwaX" style="background:none;border:0;color:#8a93a6;font-size:18px;cursor:pointer">×</button>`;
+  document.body.appendChild(b);
+  const g=document.getElementById('pwaGo');if(g)g.onclick=async()=>{if(deferredPrompt){deferredPrompt.prompt();await deferredPrompt.userChoice;deferredPrompt=null}b.remove()};
+  document.getElementById('pwaX').onclick=()=>b.remove();
+}
+if(isIos())window.addEventListener('load',()=>setTimeout(showInstall,2500));
 </script></body></html>

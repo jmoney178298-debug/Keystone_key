@@ -11,7 +11,7 @@ import Stripe from "stripe";
 import crypto from "node:crypto";
 import { db, sqlite } from "./db";
 import { auth } from "./auth";
-import { affiliates, aiUsage, assistantConversations, assistantMessages, funnels, funnelLeads, ideas, leads, lifetimeAccess, partnerAccess, prospects, referrals, stripeEvents, subscriptions } from "./schema";
+import { affiliates, aiUsage, assistantConversations, assistantMessages, funnels, funnelLeads, ideas, leads, lifetimeAccess, limitHits, partnerAccess, prospects, referrals, stripeEvents, subscriptions } from "./schema";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
 const OWNER_EMAIL = (process.env.OWNER_EMAIL ?? "").trim().toLowerCase();
@@ -473,7 +473,7 @@ footer{padding:22px 5vw;font-size:13px;color:#5B6475}
 /** Shared daily-AI-limit check. Returns an error response or null when OK. */
 async function aiLimitHit(c: any) {
   const q = await aiQuota(c.get("user").id, c.get("isAdmin"));
-  return q.ok ? null : c.json({ error: q.error }, 429);
+  return q.ok ? null : c.json({ error: q.error, limitHit: q.limitHit, plan: q.plan, limit: q.limit }, 429);
 }
 
 /** One-click funnel generation: industry in, hosted landing page out. */
@@ -691,6 +691,8 @@ admin.post("/ideas/:id/status", async (c) => {
   return c.json({ ok: true });
 });
 admin.get("/leads", async (c) => c.json(await db.select().from(leads).orderBy(desc(leads.createdAt))));
+admin.get("/limit-hits", async (c) =>
+  c.json(await db.select().from(limitHits).orderBy(desc(limitHits.createdAt)).limit(200)));
 admin.patch("/leads/:id", async (c) => {
   const { status } = await c.req.json().catch(() => ({}));
   if (!["new", "contacted", "won", "lost"].includes(status)) return c.json({ error: "Invalid status" }, 400);
@@ -717,7 +719,11 @@ async function aiQuota(userId: string, isAdmin: boolean): Promise<{ ok: boolean;
   const limit = DAILY_LIMIT[plan] ?? 20;
   const day = new Date().toISOString().slice(0, 10);
   const [u] = await db.select().from(aiUsage).where(and(eq(aiUsage.userId, userId), eq(aiUsage.day, day)));
-  if ((u?.n ?? 0) >= limit) return { ok: false, error: `Daily AI limit reached (${limit}). It resets tomorrow, or upgrade your plan.` };
+  if ((u?.n ?? 0) >= limit) {
+    // Record the upgrade signal for the owner's admin view.
+    await db.insert(limitHits).values({ userId, plan }).catch(() => {});
+    return { ok: false, error: `Daily AI limit reached (${limit}). It resets tomorrow, or upgrade your plan.`, limitHit: true, plan, limit };
+  }
   await db.insert(aiUsage).values({ userId, day, n: 1 })
     .onConflictDoUpdate({ target: [aiUsage.userId, aiUsage.day], set: { n: sql`${aiUsage.n} + 1` } });
   return { ok: true };
@@ -899,7 +905,7 @@ keystone.post("/api/assistant/chat", requireUser, requireSub, async (c) => {
   if (!userText) return c.json({ error: "Send a message to the assistant." }, 400);
   if (!process.env.ANTHROPIC_API_KEY) return c.json({ error: "AI is not configured yet." }, 503);
   const quota = await aiQuota(user.id, c.get("isAdmin"));
-  if (!quota.ok) return c.json({ error: quota.error }, 429);
+  if (!quota.ok) return c.json({ error: quota.error, limitHit: quota.limitHit, plan: quota.plan, limit: quota.limit }, 429);
 
   // Find the thread, or start a new one (auto-titled from the first message).
   let conv: any = null;

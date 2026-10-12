@@ -31,6 +31,7 @@ CREATE TABLE IF NOT EXISTS referrals (id integer PRIMARY KEY AUTOINCREMENT, affi
 CREATE TABLE IF NOT EXISTS ideas (id integer PRIMARY KEY AUTOINCREMENT, user_id text NOT NULL, title text NOT NULL, body text NOT NULL, status text NOT NULL DEFAULT 'new', created_at integer NOT NULL);
 CREATE TABLE IF NOT EXISTS assistant_conversations (id integer PRIMARY KEY AUTOINCREMENT, user_id text NOT NULL, title text NOT NULL DEFAULT 'New chat', created_at integer NOT NULL, updated_at integer NOT NULL);
 CREATE TABLE IF NOT EXISTS assistant_messages (id integer PRIMARY KEY AUTOINCREMENT, conversation_id integer NOT NULL, role text NOT NULL, content text NOT NULL, created_at integer NOT NULL);
+CREATE TABLE IF NOT EXISTS limit_hits (id integer PRIMARY KEY AUTOINCREMENT, user_id text NOT NULL, plan text NOT NULL, created_at integer NOT NULL);
 `);
 
 // Column upgrades for databases created before these columns existed.
