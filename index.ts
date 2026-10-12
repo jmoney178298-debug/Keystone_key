@@ -21,8 +21,7 @@ app.get("/app/billing", (c) => {
   return c.redirect(`/app${status ? `?billing=${encodeURIComponent(status)}` : ""}`);
 });
 
-app.get("/app", async (c) => {
-  const session = await auth.api.getSession({ headers: c.req.raw.headers });
+app.get("/app", async (c) => {  const session = await auth.api.getSession({ headers: c.req.raw.headers });
   if (!session?.user) return c.redirect("/#login");
   const isOwner = OWNER !== "" && session.user.email.toLowerCase() === OWNER;
   if (!isOwner) {
@@ -35,6 +34,14 @@ app.get("/app", async (c) => {
   }
   c.header("Cache-Control", "no-store");
   return c.html(fs.readFileSync("app.html", "utf8"));
+});
+
+app.get("/shots/:name", (c) => {
+  const name = c.req.param("name");
+  if (!/^[\w-]+\.png$/.test(name)) return c.text("Not found", 404);
+  const p = `shots/${name}`;
+  if (!fs.existsSync(p)) return c.text("Not found", 404);
+  return c.body(fs.readFileSync(p), 200, { "Content-Type": "image/png", "Cache-Control": "public, max-age=86400" });
 });
 
 app.get("/", (c) => c.html(fs.readFileSync("index.html", "utf8")));

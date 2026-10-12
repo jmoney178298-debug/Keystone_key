@@ -71,7 +71,7 @@ async function api(path,body){const r=await fetch(path,{method:body?'POST':'GET'
 function cp(t){try{navigator.clipboard.writeText(t);toast('Copied')}catch(e){prompt('Copy:',t)}}
 function toast(t){const d=document.createElement('div');d.style.cssText='position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#1B2440;border:1px solid rgba(255,255,255,.15);color:#E8EBF3;padding:10px 20px;border-radius:999px;font-size:14px;z-index:99';d.textContent=t;document.body.appendChild(d);setTimeout(()=>d.remove(),2400)}
 
-let view='assist', isAdmin=false, planLabel='basic';
+let view='assist', isAdmin=false, planLabel='basic', signedIn=false;
 let msgs=[], chatId=null, convos=[];
 let artifact=null; // {name, code}
 let limits={plan:'basic',limit:20,used:0};
@@ -80,7 +80,7 @@ const dshort=t=>{try{return new Date(t).toLocaleDateString(undefined,{month:'sho
 const NAV=[['assist','Assistant'],['funnels','Funnels & Leads'],['aff','Affiliates'],['bill','Billing']];
 function renderSide(){
   $('#side').innerHTML='<div class="logo">AI<i>U</i></div>'+
-    NAV.concat(isAdmin?[['admin','Admin']]:[]).map(n=>`<button class="nav ${n[0]==view?'on':''}" onclick="setView('${n[0]}')">${n[1]}</button>`).join('')+
+    NAV.concat(isAdmin?[['admin','Admin']]:[]).map(n=>`<button class="nav ${n[0]==view?'on':''}" onclick="setView('${n[0]}')">${n[1]}${n[0]=='funnels'&&newLeadCount()>0?` <span class="pill" style="border-color:var(--lime);color:var(--lime)">${newLeadCount()} new</span>`:''}</button>`).join('')+
     `<div class="foot"><span class="pill">${limits.limit<0?'AI: unlimited':`AI: ${limits.used}/${limits.limit} today`}</span><button class="nav" onclick="out()">Sign out</button></div>`;
 }
 function setView(v){view=v;artifactTab='preview';if(v=='assist'){chatId=null;msgs=[];artifact=null;loadConvos()}render()}
@@ -98,6 +98,10 @@ function fmtBody(t){
   }
   return h;
 }
+function welcomeHtml(){
+  if(convos.length) return '<div class="msg sys">Say hello — try one of the suggestions above.</div>';
+  return `<div class="msg ai"><b>Welcome to AIU — I'm your all-in-one assistant.</b><br><br>Tell me what you want in plain words and I'll build it: a <b>lead funnel</b> that captures customers, a <b>website or app</b> for your business — or ask me anything about your plan, leads and referrals.<br><br>Tap a suggestion above to see what I can do.</div>`;
+}
 function vAssist(){
   return `<div class="fade"><h1>Your AI <i>assistant</i></h1>
   <p class="sub">Chat, build funnels that generate leads, create websites and apps, manage leads — all in one place. Ask for anything.</p>
@@ -105,7 +109,7 @@ function vAssist(){
   <select id="convosel" onchange="openConvo(this.value)" style="flex:1;min-width:160px;max-width:440px"><option value="">Past conversations…</option>${convos.map(c=>`<option value="${c.id}"${c.id==chatId?' selected':''}>${esc(c.title)} · ${esc(dshort(c.updatedAt))}</option>`).join('')}</select>
   ${chatId?`<button class="btn danger" onclick="delConvo()">Delete</button>`:''}</div>
   <div class="chips">${CHIPS.map(c=>`<button class="chip" onclick="sendChat('${c.replace(/'/g,"\\'")}')">${esc(c)}</button>`).join('')}</div>
-  <div id="chatlog">${msgs.map(m=>`<div class="msg ${m.role=='user'?'user':'ai'}">${fmtBody(m.content)}</div>`).join('')||'<div class="msg sys">Say hello — try one of the suggestions above.</div>'}</div>
+  <div id="chatlog">${msgs.map(m=>`<div class="msg ${m.role=='user'?'user':'ai'}">${fmtBody(m.content)}</div>`).join('')||welcomeHtml()}</div>
   <div id="artifact"></div>
   <div class="composer"><textarea id="cin" rows="2" placeholder="Ask anything, or tell me what to build..." onkeydown="if(event.key=='Enter'&&!event.shiftKey){event.preventDefault();sendChat()}"></textarea><button class="btn" id="csend" onclick="sendChat()">Send</button></div>
   </div>`;
@@ -174,17 +178,30 @@ async function delConvo(){
 
 /* ---------- funnels & leads ---------- */
 let F=[],FL=[],PR=[];
+/* New-lead tracking: badge on the nav + toast the moment leads arrive. */
+let lastLeadSeen=0; try{lastLeadSeen=Number(localStorage.getItem('aiu_lastLead')||0)}catch(e){}
+function newLeadCount(){return lastLeadSeen>0?FL.filter(l=>l.id>lastLeadSeen).length:0}
+let funFirst=true;
 async function funLoad(){
   const fr=await api('/api/funnels'); F=fr.ok?fr.data:[];
   const lr=await api('/api/funnel-leads'); FL=lr.ok?lr.data:[];
   const pr=await api('/api/prospects'); PR=pr.ok?pr.data:[];
-  if(view=='funnels')render();
+  const mx=FL.reduce((m,l)=>Math.max(m,l.id),0);
+  const fresh=newLeadCount();
+  if(view=='funnels'){
+    lastLeadSeen=mx; try{localStorage.setItem('aiu_lastLead',String(mx))}catch(e){}
+    if(fresh>0)toast(`You have ${fresh} new lead${fresh>1?'s':''} — nice work.`);
+    if(fresh>0||funFirst){funFirst=false;render()}
+  } else if(fresh>0||lastLeadSeen==0){
+    renderSide();
+  }
 }
+setInterval(()=>{if(signedIn)funLoad()},30000);
 function vFunnels(){
   return `<div class="fade"><h1>Funnels <i>& leads</i></h1>
   <p class="sub">Ask the assistant to build a funnel, or manage everything below. Claiming a lead moves it to your Pipeline and removes it from the available pool.</p>
   <div class="card"><b>My funnels</b>
-  ${F.map(f=>`<div class="row" style="padding:10px 0;border-top:1px solid var(--line);justify-content:space-between"><div><b>${esc(f.title)}</b> <span class="pill"><span class="dot ${f.status=='live'?'':'off'}"></span>${esc(f.status)}</span><div style="color:var(--stone);font-size:13px">${esc(f.industry)} · <span class="mono">${esc(f.url)}</span></div></div>
+  ${F.map(f=>`<div class="row" style="padding:10px 0;border-top:1px solid var(--line);justify-content:space-between"><div><b>${esc(f.title)}</b> <span class="pill"><span class="dot ${f.status=='live'?'':'off'}"></span>${esc(f.status)}</span><div style="color:var(--stone);font-size:13px">${esc(f.industry)} · ${f.views||0} views · ${f.leads||0} leads${(f.views||0)>0?` · ${f.conversion||0}% opt-in`:''} · <span class="mono">${esc(f.url)}</span></div></div>
   <div class="row"><button class="btn ghost" onclick="window.open('${esc(f.url)}','_blank','noopener')">Open</button><button class="btn ghost" onclick="cp('${esc(f.url)}')">Copy link</button>${f.status=='live'?`<button class="btn ghost" onclick="pubFunnel(${f.id},'draft')">Unpublish</button>`:`<button class="btn" onclick="pubFunnel(${f.id},'live')">Publish</button>`}<button class="btn danger" onclick="delFunnel(${f.id})">Delete</button></div></div>`).join('')||'<p style="color:var(--stone)">No funnels yet — ask the assistant to build one.</p>'}</div>
   <div class="card"><b>Available leads <span class="pill">${FL.length}</span></b>
   ${FL.map(l=>`<div class="row" style="padding:10px 0;border-top:1px solid var(--line);justify-content:space-between"><div><b>${esc(l.name)}</b><div style="color:var(--stone);font-size:13px">${esc([l.email,l.phone,[l.city,l.state].filter(Boolean).join(', ')].filter(Boolean).join(' · '))}</div></div><button class="btn lime" onclick="claimLead(${l.id})">Claim</button></div>`).join('')||'<p style="color:var(--stone)">No leads yet. Publish a funnel and share its link.</p>'}</div>
@@ -276,7 +293,7 @@ function render(){
 }
 (async function(){
   const b=await api('/api/billing/status');
-  if(b.ok&&b.data){isAdmin=!!b.data.isAdmin;planLabel=b.data.status}
+  if(b.ok&&b.data){isAdmin=!!b.data.isAdmin;planLabel=b.data.status;signedIn=true}
   const lim=await api('/api/assistant/limits'); if(lim.ok)limits=lim.data;
   render(); loadConvos();
   const q=new URLSearchParams(location.search).get('billing');

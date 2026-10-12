@@ -22,7 +22,7 @@ CREATE TABLE IF NOT EXISTS stripe_events (id text PRIMARY KEY, created_at intege
 CREATE TABLE IF NOT EXISTS prospects (id integer PRIMARY KEY AUTOINCREMENT, user_id text NOT NULL, business_name text NOT NULL, contact_name text, email text, phone text, website text, industry text, city text, stage text NOT NULL DEFAULT 'new', deal_value integer, notes text, created_at integer NOT NULL, updated_at integer NOT NULL);
 CREATE TABLE IF NOT EXISTS ai_usage (user_id text NOT NULL, day text NOT NULL, n integer NOT NULL DEFAULT 0, PRIMARY KEY (user_id, day));
 CREATE TABLE IF NOT EXISTS leads (id integer PRIMARY KEY AUTOINCREMENT, name text NOT NULL, email text NOT NULL, company text, interest text NOT NULL, message text, status text NOT NULL DEFAULT 'new', created_at integer NOT NULL);
-CREATE TABLE IF NOT EXISTS funnels (id integer PRIMARY KEY AUTOINCREMENT, user_id text NOT NULL, slug text NOT NULL UNIQUE, industry text NOT NULL, title text NOT NULL, html text NOT NULL, ad_angles text NOT NULL DEFAULT '{}', status text NOT NULL DEFAULT 'draft', created_at integer NOT NULL, updated_at integer NOT NULL);
+CREATE TABLE IF NOT EXISTS funnels (id integer PRIMARY KEY AUTOINCREMENT, user_id text NOT NULL, slug text NOT NULL UNIQUE, industry text NOT NULL, title text NOT NULL, html text NOT NULL, ad_angles text NOT NULL DEFAULT '{}', status text NOT NULL DEFAULT 'draft', views integer NOT NULL DEFAULT 0, created_at integer NOT NULL, updated_at integer NOT NULL);
 CREATE TABLE IF NOT EXISTS funnel_leads (id integer PRIMARY KEY AUTOINCREMENT, funnel_id integer NOT NULL, user_id text NOT NULL, name text NOT NULL, email text NOT NULL, phone text, city text, state text, ip text, status text NOT NULL DEFAULT 'new', created_at integer NOT NULL);
 CREATE TABLE IF NOT EXISTS lifetime_access (user_id text PRIMARY KEY, stripe_customer_id text NOT NULL, created_at integer NOT NULL);
 CREATE TABLE IF NOT EXISTS partner_access (user_id text PRIMARY KEY, stripe_customer_id text NOT NULL, stripe_subscription_id text, created_at integer NOT NULL);
@@ -38,6 +38,7 @@ for (const stmt of [
   "ALTER TABLE affiliates ADD COLUMN elite integer NOT NULL DEFAULT 0",
   "ALTER TABLE affiliates ADD COLUMN elite_kind text",
   "ALTER TABLE partner_access ADD COLUMN stripe_subscription_id text",
+  "ALTER TABLE funnels ADD COLUMN views integer NOT NULL DEFAULT 0",
 ]) {
   try { sqlite.exec(stmt); } catch { /* column already exists */ }
 }

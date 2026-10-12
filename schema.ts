@@ -67,6 +67,8 @@ export const funnels = sqliteTable("funnels", {
   adAngles: text("ad_angles", { mode: "json" }).$type<Record<string, any>>().notNull().default({}),
   /** draft | live */
   status: text("status").notNull().default("draft"),
+  /** public page views (incremented on each /f/:slug load) */
+  views: integer("views").notNull().default(0),
   createdAt: createdAt(),
   updatedAt: updatedAt(),
 });

@@ -9,7 +9,7 @@ import { getCookie, setCookie } from "hono/cookie";
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import Stripe from "stripe";
 import crypto from "node:crypto";
-import { db } from "./db";
+import { db, sqlite } from "./db";
 import { auth } from "./auth";
 import { affiliates, aiUsage, assistantConversations, assistantMessages, funnels, funnelLeads, ideas, leads, lifetimeAccess, partnerAccess, prospects, referrals, stripeEvents, subscriptions } from "./schema";
 
@@ -494,7 +494,13 @@ keystone.post("/api/funnels/generate", requireUser, requireSub, async (c) => {
 
 keystone.get("/api/funnels", requireUser, requireSub, async (c) => {
   const rows = await db.select().from(funnels).where(eq(funnels.userId, c.get("user").id)).orderBy(desc(funnels.updatedAt));
-  return c.json(rows.map((r) => ({ ...r, html: undefined, url: `${APP_URL}/f/${r.slug}` })));
+  const withStats = await Promise.all(rows.map(async (r) => {
+    const [cnt] = await db.select({ n: sql<number>`count(*)` }).from(funnelLeads).where(eq(funnelLeads.funnelId, r.id));
+    const leads = cnt?.n ?? 0;
+    const views = r.views ?? 0;
+    return { ...r, html: undefined, url: `${APP_URL}/f/${r.slug}`, views, leads, conversion: views > 0 ? Math.round((leads / views) * 100) : 0 };
+  }));
+  return c.json(withStats);
 });
 
 keystone.post("/api/funnels/:id/publish", requireUser, requireSub, async (c) => {
@@ -518,8 +524,32 @@ keystone.get("/f/:slug", async (c) => {
   const [f] = await db.select().from(funnels).where(eq(funnels.slug, c.req.param("slug")));
   if (!f || f.status !== "live") return c.text("Not found", 404);
   c.header("Cache-Control", "no-store");
+  // Count the view (best effort; never blocks the page).
+  db.update(funnels).set({ views: sql`${funnels.views} + 1` }).where(eq(funnels.id, f.id)).catch(() => {});
   return c.html(f.html);
 });
+
+/** Notify a funnel owner the moment a new lead opts in. Email via Resend when
+ *  RESEND_API_KEY is set; otherwise a no-op (the in-app badge still works). */
+async function notifyNewLead(ownerId: string, lead: { funnel: string; name: string; email: string; phone?: string }) {
+  try {
+    const key = process.env.RESEND_API_KEY;
+    if (!key) return;
+    const row = sqlite.prepare("SELECT email FROM user WHERE id = ?").get(ownerId) as { email?: string } | undefined;
+    if (!row?.email) return;
+    const from = process.env.NOTIFY_FROM || "AIU <notifications@getaiu.online>";
+    await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        from,
+        to: row.email,
+        subject: `New lead: ${lead.name} (${lead.funnel})`,
+        text: `You have a new lead from your funnel "${lead.funnel}".\n\nName: ${lead.name}\nEmail: ${lead.email}${lead.phone ? `\nPhone: ${lead.phone}` : ""}\n\nClaim it in your AIU dashboard: ${APP_URL}/app`,
+      }),
+    });
+  } catch { /* notifications must never break lead capture */ }
+}
 
 const funnelLeadHits = new Map<string, number[]>();
 
@@ -549,6 +579,8 @@ keystone.post("/api/funnels/:slug/leads", async (c) => {
     funnelId: f.id, userId: f.userId, name, email,
     phone: clean(b.phone, 40), city: clean(b.city, 80), state: clean(b.state, 40), ip,
   }).returning();
+  // Tell the owner right away (email if configured; in-app badge always works).
+  notifyNewLead(f.userId, { funnel: f.title, name, email, phone: clean(b.phone, 40) });
   return c.json({ ok: true, id: row.id }, 201);
 });
 
