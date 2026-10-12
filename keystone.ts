@@ -656,6 +656,7 @@ admin.get("/affiliates", async (c) => {
     referrals: sql<number>`count(${referrals.id})`,
     earnedCents: sql<number>`coalesce(sum(${referrals.commissionCents}),0)`,
     paidCents: sql<number>`coalesce(sum(case when ${referrals.payoutStatus} = 'paid' then ${referrals.commissionCents} else 0 end),0)`,
+    email: sql<string>`(select email from user where user.id = ${affiliates.userId})`,
   }).from(affiliates)
     .leftJoin(referrals, eq(referrals.affiliateId, affiliates.id))
     .groupBy(affiliates.id)
