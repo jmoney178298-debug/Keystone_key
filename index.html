@@ -77,7 +77,7 @@ footer a{color:var(--stone)}
 const BOOKING_URL="#";
 document.getElementById('bookbtn').href=BOOKING_URL;
 const $=s=>document.querySelector(s);
-const PLANS=[['basic','AIU Basic',20,'Full AI assistant, 20 AI requests per day'],['pro','AIU Pro',50,'Everything in Basic, 100 AI requests per day, priority email support'],['proplus','AIU+',100,'Everything in Pro, 300 AI requests per day, 1:1 setup call']];
+const PLANS=[['basic','AIU Basic',9,'Full AI assistant, 20 AI requests per day'],['pro','AIU Pro',29,'Everything in Basic, 100 AI requests per day, priority email support'],['proplus','AIU+',59,'Everything in Pro, 300 AI requests per day, 1:1 setup call']];
 $('#grid').innerHTML=PLANS.map(p=>`<div class="card"><b>${p[1]}</b><div class="price">$${p[2]}<span style="font-size:18px">/mo</span></div><p>${p[3]}</p><button class="btn" onclick="pick('${p[0]}')">Start 7-day free trial</button></div>`).join('');
 let signup=false;
 function show(id){document.querySelectorAll('.sec').forEach(e=>e.classList.toggle('on',e.id==id));if(id=='account')acct();scrollTo(0,0)}
