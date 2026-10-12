@@ -119,6 +119,9 @@ export const affiliates = sqliteTable("affiliates", {
   elite: integer("elite").notNull().default(0),
   /** ladder | fast | manual (how the lifetime lock was earned) */
   eliteKind: text("elite_kind"),
+  /** contact info for payouts/refunds (collected at signup) */
+  phone: text("phone"),
+  address: text("address"),
   createdAt: createdAt(),
 });
 

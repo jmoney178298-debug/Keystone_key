@@ -40,6 +40,8 @@ for (const stmt of [
   "ALTER TABLE affiliates ADD COLUMN elite_kind text",
   "ALTER TABLE partner_access ADD COLUMN stripe_subscription_id text",
   "ALTER TABLE funnels ADD COLUMN views integer NOT NULL DEFAULT 0",
+  "ALTER TABLE affiliates ADD COLUMN phone text",
+  "ALTER TABLE affiliates ADD COLUMN address text",
 ]) {
   try { sqlite.exec(stmt); } catch { /* column already exists */ }
 }

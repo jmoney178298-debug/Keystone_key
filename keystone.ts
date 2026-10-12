@@ -379,8 +379,13 @@ keystone.post("/api/affiliates/join", requireUser, async (c) => {
   const userId = c.get("user").id;
   const [existing] = await db.select().from(affiliates).where(eq(affiliates.userId, userId));
   if (existing) return c.json({ ...existing, link: `${APP_URL}/r/${existing.code}` });
+  const { phone, address } = await c.req.json().catch(() => ({}));
   const code = await uniqueAffCode();
-  const [row] = await db.insert(affiliates).values({ userId, code }).returning();
+  const [row] = await db.insert(affiliates).values({
+    userId, code,
+    phone: typeof phone === "string" ? phone.slice(0, 40) : null,
+    address: typeof address === "string" ? address.slice(0, 200) : null,
+  }).returning();
   return c.json({ ...row, link: `${APP_URL}/r/${row.code}` }, 201);
 });
 
@@ -642,7 +647,14 @@ admin.get("/overview", async (c) => {
   return c.json({ subscribers: subs, newInboundLeads: inbound.n, wonRevenue: won.total });
 });
 
-admin.get("/subscribers", async (c) => c.json(await db.select().from(subscriptions).orderBy(desc(subscriptions.updatedAt))));
+admin.get("/subscribers", async (c) => c.json(await db.select({
+  userId: subscriptions.userId,
+  plan: subscriptions.plan,
+  status: subscriptions.status,
+  stripeCustomerId: subscriptions.stripeCustomerId,
+  updatedAt: subscriptions.updatedAt,
+  email: sql<string>`(select email from user where user.id = ${subscriptions.userId})`,
+}).from(subscriptions).orderBy(desc(subscriptions.updatedAt))));
 admin.get("/affiliates", async (c) => {
   const rows = await db.select({
     id: affiliates.id,
@@ -651,6 +663,8 @@ admin.get("/affiliates", async (c) => {
     tier: affiliates.tier,
     status: affiliates.status,
     elite: affiliates.elite,
+    phone: affiliates.phone,
+    address: affiliates.address,
     eliteKind: affiliates.eliteKind,
     createdAt: affiliates.createdAt,
     referrals: sql<number>`count(${referrals.id})`,
@@ -680,6 +694,36 @@ admin.post("/affiliates/:id/status", async (c) => {
   if (!["active", "paused"].includes(status)) return c.json({ error: "Invalid status" }, 400);
   await db.update(affiliates).set({ status }).where(eq(affiliates.id, Number(c.req.param("id"))));
   return c.json({ ok: true });
+});
+/** Owner: refund a subscriber's most recent successful payment via Stripe. */
+admin.post("/subscribers/:userId/refund", async (c) => {
+  const userId = c.req.param("userId");
+  const [s] = await db.select().from(subscriptions).where(eq(subscriptions.userId, userId));
+  if (!s?.stripeCustomerId) return c.json({ error: "No Stripe customer found." }, 404);
+  const pis = await stripe.paymentIntents.list({ customer: s.stripeCustomerId, limit: 10 });
+  const last = pis.data.find((p) => p.status === "succeeded");
+  if (!last) return c.json({ error: "No successful payment found to refund." }, 404);
+  const refund = await stripe.refunds.create({ payment_intent: last.id });
+  return c.json({ ok: true, refundId: refund.id, amount: last.amount, currency: last.currency });
+});
+/** Owner: charge a subscriber's card on file (off-session). Body: { amountCents, description? } */
+admin.post("/subscribers/:userId/charge", async (c) => {
+  const userId = c.req.param("userId");
+  const { amountCents, description } = await c.req.json().catch(() => ({}));
+  const amount = Math.round(Number(amountCents));
+  if (!amount || amount < 50) return c.json({ error: "Amount must be at least $0.50." }, 400);
+  if (amount > 1000000) return c.json({ error: "Amount too large." }, 400);
+  const [s] = await db.select().from(subscriptions).where(eq(subscriptions.userId, userId));
+  if (!s?.stripeCustomerId) return c.json({ error: "No Stripe customer found." }, 404);
+  const pi = await stripe.paymentIntents.create({
+    amount,
+    currency: "usd",
+    customer: s.stripeCustomerId,
+    off_session: true,
+    confirm: true,
+    description: typeof description === "string" ? description.slice(0, 200) : "Manual charge",
+  });
+  return c.json({ ok: true, paymentIntentId: pi.id, amount: pi.amount, status: pi.status });
 });
 /** Owner: grant or revoke the lifetime-50% lock by hand. */
 admin.post("/affiliates/:id/elite", async (c) => {
