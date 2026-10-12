@@ -57,9 +57,18 @@ const requireSub: MiddlewareHandler<Env> = async (c, next) => {
 
 async function customerFor(user: { id: string; email: string }) {
   const [row] = await db.select().from(subscriptions).where(eq(subscriptions.userId, user.id));
-  if (row) return row.stripeCustomerId;
+  if (row?.stripeCustomerId) {
+    // Verify the stored customer still exists in Stripe (keys/accounts can change).
+    try {
+      await stripe.customers.retrieve(row.stripeCustomerId);
+      return row.stripeCustomerId;
+    } catch {
+      // Stale customer ID (e.g. from a different Stripe account) — create a fresh one below.
+    }
+  }
   const customer = await stripe.customers.create({ email: user.email, metadata: { userId: user.id } });
-  await db.insert(subscriptions).values({ userId: user.id, stripeCustomerId: customer.id });
+  if (row) await db.update(subscriptions).set({ stripeCustomerId: customer.id }).where(eq(subscriptions.userId, user.id));
+  else await db.insert(subscriptions).values({ userId: user.id, stripeCustomerId: customer.id });
   return customer.id;
 }
 
