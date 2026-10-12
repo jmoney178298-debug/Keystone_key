@@ -351,13 +351,14 @@ function isStandalone(){return window.matchMedia('(display-mode: standalone)').m
 window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();deferredPrompt=e;showInstall()});
 function showInstall(){
   if(isStandalone()||document.getElementById('pwaBanner'))return;
+  try{if(localStorage.getItem('aiu_pwaDismissed'))return}catch(e){}
   const b=document.createElement('div');b.id='pwaBanner';
   b.style.cssText='position:fixed;left:12px;right:12px;bottom:12px;z-index:9999;background:#0D1322;color:#E8EBF3;border:1px solid #19E6B4;border-radius:14px;padding:12px 14px;display:flex;gap:10px;align-items:center;box-shadow:0 10px 30px rgba(0,0,0,.5);font:500 14px Inter,system-ui';
   const msg=isIos()?'Add AIU to your home screen: tap Share, then "Add to Home Screen".':'Install the AIU app for the full-screen experience.';
   b.innerHTML=`<img src="/pwa/icon-192.png" alt="" style="width:40px;height:40px;border-radius:10px"><span style="flex:1">${msg}</span>${deferredPrompt?'<button id="pwaGo" style="background:#19E6B4;border:0;color:#0B0F1A;border-radius:999px;padding:8px 16px;font-weight:700;cursor:pointer">Install</button>':''}<button id="pwaX" style="background:none;border:0;color:#8a93a6;font-size:18px;cursor:pointer">×</button>`;
   document.body.appendChild(b);
-  const g=document.getElementById('pwaGo');if(g)g.onclick=async()=>{if(deferredPrompt){deferredPrompt.prompt();await deferredPrompt.userChoice;deferredPrompt=null}b.remove()};
-  document.getElementById('pwaX').onclick=()=>b.remove();
+  const g=document.getElementById('pwaGo');if(g)g.onclick=async()=>{try{localStorage.setItem('aiu_pwaDismissed','1')}catch(e){}if(deferredPrompt){deferredPrompt.prompt();await deferredPrompt.userChoice;deferredPrompt=null}b.remove()};
+  document.getElementById('pwaX').onclick=()=>{try{localStorage.setItem('aiu_pwaDismissed','1')}catch(e){}b.remove()};
 }
 if(isIos())window.addEventListener('load',()=>setTimeout(showInstall,2500));
 </script></body></html>
