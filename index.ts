@@ -36,6 +36,15 @@ app.get("/app", async (c) => {  const session = await auth.api.getSession({ head
   return c.html(fs.readFileSync("app.html", "utf8"));
 });
 
+app.get("/pwa/:name", (c) => {
+  const name = c.req.param("name");
+  if (!/^[\w.-]+\.(png|json|js)$/.test(name)) return c.text("Not found", 404);
+  const p = `pwa/${name}`;
+  if (!fs.existsSync(p)) return c.text("Not found", 404);
+  const type = name.endsWith(".json") ? "application/manifest+json" : name.endsWith(".js") ? "application/javascript" : "image/png";
+  return c.body(fs.readFileSync(p), 200, { "Content-Type": type, "Cache-Control": "public, max-age=86400" });
+});
+
 app.get("/shots/:name", (c) => {
   const name = c.req.param("name");
   if (!/^[\w-]+\.png$/.test(name)) return c.text("Not found", 404);
