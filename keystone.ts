@@ -482,13 +482,32 @@ keystone.get("/api/affiliates/me", requireUser, async (c) => {
 const clean = (v: unknown, max = 300) => (typeof v === "string" && v.trim() ? v.trim().slice(0, max) : null);
 
 /* ---------------- spokesperson videos (HeyGen) ---------------- */
+/** Monthly video allowance per plan. Owner is unlimited. Videos cost HeyGen credits, so caps protect margins. */
+const VIDEO_MONTHLY_LIMIT: Record<string, number> = { basic: 2, pro: 5, proplus: 10, lifetime: 15 };
+async function videoQuota(userId: string, isAdmin: boolean): Promise<{ ok: boolean; error?: string; used?: number; limit?: number }> {
+  if (isAdmin) return { ok: true };
+  const [s] = await db.select().from(subscriptions).where(eq(subscriptions.userId, userId));
+  const [life] = await db.select().from(lifetimeAccess).where(eq(lifetimeAccess.userId, userId));
+  const [part] = await db.select().from(partnerAccess).where(eq(partnerAccess.userId, userId));
+  const plan = life ? "lifetime" : part ? "proplus" : s?.plan ?? "basic";
+  const limit = VIDEO_MONTHLY_LIMIT[plan] ?? 2;
+  const monthStart = new Date(); monthStart.setDate(1); monthStart.setHours(0, 0, 0, 0);
+  const [row] = await db.select({ n: sql<number>`count(*)` }).from(videoJobs)
+    .where(and(eq(videoJobs.userId, userId), sql`${videoJobs.createdAt} >= ${monthStart}`));
+  const used = row?.n ?? 0;
+  if (used >= limit) return { ok: false, used, limit, error: `Monthly video limit reached (${used}/${limit}). Resets on the 1st, or upgrade your plan.` };
+  return { ok: true, used, limit };
+}
 keystone.get("/api/videos", requireUser, async (c) => {
   const rows = await db.select().from(videoJobs)
     .where(eq(videoJobs.userId, c.get("user").id)).orderBy(desc(videoJobs.createdAt));
-  return c.json(rows.map((r) => ({ id: r.id, title: r.title, format: r.format, status: r.status, videoUrl: r.videoUrl, error: r.error, createdAt: r.createdAt })));
+  const q = await videoQuota(c.get("user").id, c.get("isAdmin"));
+  return c.json({ videos: rows.map((r) => ({ id: r.id, title: r.title, format: r.format, status: r.status, videoUrl: r.videoUrl, error: r.error, createdAt: r.createdAt })), quota: q.ok ? { used: q.used, limit: q.limit } : { used: q.used, limit: q.limit }, unlimited: c.get("isAdmin") });
 });
 keystone.post("/api/videos", requireUser, requireSub, async (c) => {
   if (!heygenConfigured()) return c.json({ error: "Video generation is not connected yet." }, 503);
+  const q = await videoQuota(c.get("user").id, c.get("isAdmin"));
+  if (!q.ok) return c.json({ error: q.error }, 429);
   const body = await c.req.json().catch(() => ({}));
   const script = clean(body.script, 2000);
   if (!script) return c.json({ error: "Give me the script for the avatar to speak." }, 400);
