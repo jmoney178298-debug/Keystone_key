@@ -16,7 +16,7 @@ import { blgConfigured, blgGetArticle, blgListArticles, blgSyncArticles, blgUpse
 import { heygenConfigured, heygenGenerateVideo, heygenVideoStatus } from "./heygen";
 import fs from "node:fs";
 import path from "node:path";
-import { generateImage, openaiConfigured, removebgConfigured, removeBackground, textToSpeech } from "./media";
+import { generateImage, leonardoConfigured, openaiConfigured, removeBackground, textToSpeech } from "./media";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
 const OWNER_EMAIL = (process.env.OWNER_EMAIL ?? "").trim().toLowerCase();
@@ -594,7 +594,7 @@ keystone.post("/api/studio/tts", requireUser, requireSub, async (c) => {
   } catch (e: any) { return c.json({ error: e?.message || "Voiceover failed." }, 500); }
 });
 keystone.post("/api/studio/bgremove", requireUser, requireSub, async (c) => {
-  if (!removebgConfigured()) return c.json({ error: "Background removal is not connected yet." }, 503);
+  if (!leonardoConfigured()) return c.json({ error: "Background removal is not connected yet." }, 503);
   const q = await studioQuota(c.get("user").id, c.get("isAdmin"));
   if (!q.ok) return c.json({ error: q.error }, 429);
   const body = await c.req.json().catch(() => ({}));
