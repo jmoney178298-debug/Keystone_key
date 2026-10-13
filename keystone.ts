@@ -11,9 +11,12 @@ import Stripe from "stripe";
 import crypto from "node:crypto";
 import { db, sqlite } from "./db";
 import { auth } from "./auth";
-import { affiliates, aiUsage, assistantConversations, assistantMessages, blgPosts, funnels, funnelLeads, ideas, leads, lifetimeAccess, limitHits, partnerAccess, prospects, referrals, stripeEvents, subscriptions, videoJobs } from "./schema";
+import { affiliates, aiUsage, assistantConversations, assistantMessages, blgPosts, funnels, funnelLeads, ideas, leads, lifetimeAccess, limitHits, mediaJobs, partnerAccess, prospects, referrals, stripeEvents, subscriptions, videoJobs } from "./schema";
 import { blgConfigured, blgGetArticle, blgListArticles, blgSyncArticles, blgUpsertArticle } from "./blg";
 import { heygenConfigured, heygenGenerateVideo, heygenVideoStatus } from "./heygen";
+import fs from "node:fs";
+import path from "node:path";
+import { generateImage, openaiConfigured, removebgConfigured, removeBackground, textToSpeech } from "./media";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
 const OWNER_EMAIL = (process.env.OWNER_EMAIL ?? "").trim().toLowerCase();
@@ -534,6 +537,88 @@ keystone.get("/api/videos/:id", requireUser, async (c) => {
     } catch { /* keep last known status */ }
   }
   return c.json({ id: job.id, title: job.title, format: job.format, status: job.status, videoUrl: job.videoUrl, error: job.error });
+});
+
+/* ---------------- studio: AI images, voiceover, background removal ---------------- */
+/** Monthly studio allowance per plan (images + voiceovers + bg removals combined). Owner unlimited. */
+const STUDIO_MONTHLY_LIMIT: Record<string, number> = { basic: 10, pro: 30, proplus: 60, lifetime: 100 };
+async function studioQuota(userId: string, isAdmin: boolean): Promise<{ ok: boolean; error?: string; used?: number; limit?: number }> {
+  if (isAdmin) return { ok: true };
+  const [s] = await db.select().from(subscriptions).where(eq(subscriptions.userId, userId));
+  const [life] = await db.select().from(lifetimeAccess).where(eq(lifetimeAccess.userId, userId));
+  const [part] = await db.select().from(partnerAccess).where(eq(partnerAccess.userId, userId));
+  const plan = life ? "lifetime" : part ? "proplus" : s?.plan ?? "basic";
+  const limit = STUDIO_MONTHLY_LIMIT[plan] ?? 10;
+  const monthStart = new Date(); monthStart.setDate(1); monthStart.setHours(0, 0, 0, 0);
+  const [row] = await db.select({ n: sql<number>`count(*)` }).from(mediaJobs)
+    .where(and(eq(mediaJobs.userId, userId), sql`${mediaJobs.createdAt} >= ${monthStart}`));
+  const used = row?.n ?? 0;
+  if (used >= limit) return { ok: false, used, limit, error: `Monthly studio limit reached (${used}/${limit}). Resets on the 1st, or upgrade your plan.` };
+  return { ok: true, used, limit };
+}
+const MEDIA_DIR = path.join(process.cwd(), "data", "media");
+try { fs.mkdirSync(MEDIA_DIR, { recursive: true }); } catch {}
+keystone.get("/api/studio/jobs", requireUser, async (c) => {
+  const rows = await db.select().from(mediaJobs)
+    .where(eq(mediaJobs.userId, c.get("user").id)).orderBy(desc(mediaJobs.createdAt)).limit(50);
+  const q = await studioQuota(c.get("user").id, c.get("isAdmin"));
+  return c.json({ jobs: rows.map((r) => ({ id: r.id, kind: r.kind, prompt: r.prompt, status: r.status, resultUrl: r.resultUrl, createdAt: r.createdAt })), quota: q.ok ? { used: q.used, limit: q.limit } : { used: q.used, limit: q.limit }, unlimited: c.get("isAdmin") });
+});
+keystone.post("/api/studio/image", requireUser, requireSub, async (c) => {
+  if (!openaiConfigured()) return c.json({ error: "Image generation is not connected yet." }, 503);
+  const q = await studioQuota(c.get("user").id, c.get("isAdmin"));
+  if (!q.ok) return c.json({ error: q.error }, 429);
+  const body = await c.req.json().catch(() => ({}));
+  const prompt = clean(body.prompt, 1000);
+  if (!prompt) return c.json({ error: "Describe the image you want." }, 400);
+  try {
+    const url = await generateImage(prompt);
+    const [job] = await db.insert(mediaJobs).values({ userId: c.get("user").id, kind: "image", prompt, status: "done", resultUrl: url }).returning();
+    return c.json({ id: job.id, resultUrl: url });
+  } catch (e: any) { return c.json({ error: e?.message || "Image generation failed." }, 500); }
+});
+keystone.post("/api/studio/tts", requireUser, requireSub, async (c) => {
+  if (!openaiConfigured()) return c.json({ error: "Voiceover is not connected yet." }, 503);
+  const q = await studioQuota(c.get("user").id, c.get("isAdmin"));
+  if (!q.ok) return c.json({ error: q.error }, 429);
+  const body = await c.req.json().catch(() => ({}));
+  const text = clean(body.text, 4000);
+  if (!text) return c.json({ error: "Enter the text for the voiceover." }, 400);
+  try {
+    const mp3 = await textToSpeech(text, body.voice);
+    const name = `tts-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.mp3`;
+    fs.writeFileSync(path.join(MEDIA_DIR, name), mp3);
+    const resultUrl = `/api/studio/file/${name}`;
+    const [job] = await db.insert(mediaJobs).values({ userId: c.get("user").id, kind: "tts", prompt: text.slice(0, 200), status: "done", resultUrl }).returning();
+    return c.json({ id: job.id, resultUrl });
+  } catch (e: any) { return c.json({ error: e?.message || "Voiceover failed." }, 500); }
+});
+keystone.post("/api/studio/bgremove", requireUser, requireSub, async (c) => {
+  if (!removebgConfigured()) return c.json({ error: "Background removal is not connected yet." }, 503);
+  const q = await studioQuota(c.get("user").id, c.get("isAdmin"));
+  if (!q.ok) return c.json({ error: q.error }, 429);
+  const body = await c.req.json().catch(() => ({}));
+  const imageUrl = clean(body.imageUrl, 2000);
+  if (!imageUrl) return c.json({ error: "Provide an image URL." }, 400);
+  try {
+    const png = await removeBackground(imageUrl);
+    const name = `bg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.png`;
+    fs.writeFileSync(path.join(MEDIA_DIR, name), png);
+    const resultUrl = `/api/studio/file/${name}`;
+    const [job] = await db.insert(mediaJobs).values({ userId: c.get("user").id, kind: "bgremove", prompt: imageUrl.slice(0, 200), status: "done", resultUrl }).returning();
+    return c.json({ id: job.id, resultUrl });
+  } catch (e: any) { return c.json({ error: e?.message || "Background removal failed." }, 500); }
+});
+keystone.get("/api/studio/file/:name", requireUser, async (c) => {
+  const name = c.req.param("name").replace(/[^a-zA-Z0-9._-]/g, "");
+  const fp = path.join(MEDIA_DIR, name);
+  if (!fs.existsSync(fp)) return c.json({ error: "Not found." }, 404);
+  // Only serve files the requester created.
+  const [job] = await db.select().from(mediaJobs).where(and(eq(mediaJobs.resultUrl, `/api/studio/file/${name}`), eq(mediaJobs.userId, c.get("user").id)));
+  if (!job && !c.get("isAdmin")) return c.json({ error: "Not found." }, 404);
+  const ext = path.extname(name).toLowerCase();
+  const type = ext === ".mp3" ? "audio/mpeg" : ext === ".png" ? "image/png" : "application/octet-stream";
+  return new Response(fs.readFileSync(fp), { headers: { "Content-Type": type, "Cache-Control": "public, max-age=31536000" } });
 });
 
 /* ---------------- funnels: AI-generated lead capture pages ---------------- */
