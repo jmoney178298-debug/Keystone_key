@@ -287,13 +287,14 @@ async function delFunnel(id){if(!confirm('Delete this funnel and its leads?'))re
 async function claimLead(id){const r=await api('/api/funnel-leads/'+id+'/claim',{});if(r.ok){toast('Claimed — moved to your Pipeline.');funLoad()}else toast(r.data.error||'Claim failed.')}
 
 /* ---------- videos ---------- */
-let VIDS=null,VIDSERR='';
-async function vidLoad(){try{const r=await api('/api/videos');VIDS=r.ok?r.data:'err';VIDSERR=r.ok?'':(r.data&&r.data.error||'Could not load.')}catch(e){VIDS='err';VIDSERR='Could not load.'}if(view=='videos')render()}
+let VIDS=[],VIDSERR='',VIDQUOTA=null,VIDUNLIMITED=false;
+async function vidLoad(){try{const r=await api('/api/videos');if(r.ok){VIDS=r.data.videos||[];VIDQUOTA=r.data.quota||null;VIDUNLIMITED=!!r.data.unlimited;VIDSERR=''}else{VIDS='err';VIDSERR=r.data&&r.data.error||'Could not load.'}}catch(e){VIDS='err';VIDSERR='Could not load.'}if(view=='videos')render()}
 function vVideos(){
+  const quotaLine=VIDUNLIMITED?'<span class="pill" style="border-color:var(--lime);color:var(--lime)">Unlimited</span>':VIDQUOTA?`<span class="pill">${VIDQUOTA.used}/${VIDQUOTA.limit} this month</span>`:'';
   const list=VIDS===null?'<div class="card">Loading...</div>':VIDS==='err'?`<div class="card"><b>Couldn't load videos</b><p style="color:var(--stone)">${esc(VIDSERR)}</p><div class="row" style="margin-top:10px"><button class="btn lime" onclick="VIDS=null;VIDSERR='';render();vidLoad()">Try again</button></div></div>`
   :VIDS.length?VIDS.map(v=>`<div class="card"><div class="row" style="justify-content:space-between"><div><b>${esc(v.title||'Untitled')}</b> <span class="pill">${esc(v.format||'')}</span> <span class="pill">${esc(v.status||'')}</span></div>${v.status=='completed'&&v.videoUrl?`<button class="btn lime" onclick="window.open('${esc(v.videoUrl)}','_blank')">Watch</button>`:`<button class="btn ghost" onclick="vidCheck(${v.id})">Refresh</button>`}</div>${v.status=='failed'?`<p style="color:#f66">${esc(v.error||'Rendering failed.')}</p>`:v.status!='completed'?'<p class="sub">Rendering — check back in a few minutes.</p>':''}</div>`).join('')
   :'<div class="card"><p style="color:var(--stone)">No videos yet. Write a script below and your AI spokesperson will record it.</p></div>';
-  return `<div class="fade"><h1>Vi<i>deos</i></h1><p class="sub">AI spokesperson videos — a talking-head avatar delivers your script. Great for ads, landing pages and social.</p>
+  return `<div class="fade"><h1>Vi<i>deos</i></h1><p class="sub">AI spokesperson videos — a talking-head avatar delivers your script. Great for ads, landing pages and social. ${quotaLine}</p>
   <div class="card"><b>New spokesperson video</b><div style="display:grid;gap:8px;margin-top:10px"><input id="vidTitle" placeholder="Title (optional)" maxlength="120"><textarea id="vidScript" placeholder="Exactly what the avatar should say (keep it under ~300 words)..." maxlength="2000" style="min-height:90px"></textarea><div class="row"><select id="vidFormat" style="background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px;color:var(--txt)"><option value="landscape">Landscape — YouTube / site</option><option value="portrait">Portrait — TikTok / Reels / Shorts</option><option value="square">Square — Instagram</option></select><button class="btn lime" onclick="vidCreate()">Generate video</button></div></div></div>
   <div id="vidbody">${list}</div></div>`;
 }
