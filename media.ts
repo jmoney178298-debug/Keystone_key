@@ -1,7 +1,7 @@
-/** AI media generation: images (OpenAI DALL-E), voiceover (OpenAI TTS), background removal (remove.bg). */
+/** AI media generation: images (OpenAI DALL-E), voiceover (OpenAI TTS), background removal (Leonardo AI). */
 
 export const openaiConfigured = () => !!process.env.OPENAI_API_KEY;
-export const removebgConfigured = () => !!process.env.REMOVEBG_API_KEY;
+export const leonardoConfigured = () => !!process.env.LEONARDO_API_KEY;
 
 /** Generate an image with DALL-E 3. Returns a public image URL. */
 export async function generateImage(prompt: string): Promise<string> {
@@ -36,21 +36,42 @@ export async function textToSpeech(text: string, voice = "alloy"): Promise<Buffe
   return Buffer.from(await r.arrayBuffer());
 }
 
-/** Remove the background from an image URL via remove.bg. Returns PNG bytes. */
+/** Remove the background from an image URL via Leonardo AI. Returns PNG bytes. */
 export async function removeBackground(imageUrl: string): Promise<Buffer> {
-  const key = process.env.REMOVEBG_API_KEY;
+  const key = process.env.LEONARDO_API_KEY;
   if (!key) throw new Error("Background removal is not connected yet.");
-  const form = new FormData();
-  form.append("image_url", imageUrl);
-  form.append("size", "auto");
-  const r = await fetch("https://api.remove.bg/v1.0/removebg", {
-    method: "POST",
-    headers: { "X-Api-Key": key },
-    body: form,
+  const auth = { "authorization": `Bearer ${key}`, "Content-Type": "application/json" };
+  // 1. Download the source image.
+  const src = await fetch(imageUrl);
+  if (!src.ok) throw new Error("Could not download the source image.");
+  const bytes = Buffer.from(await src.arrayBuffer());
+  // 2. Get a Leonardo upload slot.
+  const init = await fetch("https://cloud.leonardo.ai/api/rest/v2/init-image", {
+    method: "POST", headers: auth, body: JSON.stringify({ extension: "png" }),
   });
-  if (!r.ok) {
-    const t = await r.text().catch(() => "");
-    throw new Error(`Background removal failed (${r.status}). ${t.slice(0, 120)}`);
-  }
-  return Buffer.from(await r.arrayBuffer());
+  const initJ = await init.json().catch(() => ({}));
+  const uploadUrl = initJ?.uploadInitImage?.url;
+  const imageId = initJ?.uploadInitImage?.id;
+  if (!uploadUrl || !imageId) throw new Error("Leonardo upload init failed.");
+  // 3. Upload the image bytes.
+  const up = await fetch(uploadUrl, { method: "PUT", headers: { "Content-Type": "image/png" }, body: bytes });
+  if (!up.ok) throw new Error("Leonardo image upload failed.");
+  // 4. Run synchronous background removal.
+  const gen = await fetch("https://cloud.leonardo.ai/api/rest/v2/generationssync", {
+    method: "POST", headers: auth,
+    body: JSON.stringify({
+      model: "remove-bg", public: false, ephemeral: true,
+      parameters: {
+        size: "auto", type: "auto", format: "png",
+        guidances: { image_reference: [{ image: { id: imageId, type: "UPLOADED" } }] },
+      },
+    }),
+  });
+  const genJ = await gen.json().catch(() => ({}));
+  const outUrl = genJ?.generations?.[0]?.url || genJ?.url;
+  if (!gen.ok || !outUrl) throw new Error(genJ?.error || "Leonardo background removal failed.");
+  // 5. Download the result.
+  const out = await fetch(outUrl);
+  if (!out.ok) throw new Error("Could not download the result image.");
+  return Buffer.from(await out.arrayBuffer());
 }
