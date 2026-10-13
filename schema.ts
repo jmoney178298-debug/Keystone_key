@@ -215,3 +215,15 @@ export const videoJobs = sqliteTable("video_jobs", {
   createdAt: createdAt(),
   updatedAt: updatedAt(),
 });
+
+/** Generic media jobs: AI images, TTS voiceovers, background removal. */
+export const mediaJobs = sqliteTable("media_jobs", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  userId: text("user_id").notNull(),
+  kind: text("kind").notNull(), // 'image' | 'tts' | 'bgremove'
+  prompt: text("prompt"),
+  status: text("status").notNull().default("done"), // 'done' | 'failed'
+  resultUrl: text("result_url"),
+  error: text("error"),
+  createdAt: createdAt(),
+});
