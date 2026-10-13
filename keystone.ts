@@ -481,6 +481,42 @@ keystone.get("/api/affiliates/me", requireUser, async (c) => {
 /* Shared string cleaner. */
 const clean = (v: unknown, max = 300) => (typeof v === "string" && v.trim() ? v.trim().slice(0, max) : null);
 
+/* ---------------- spokesperson videos (HeyGen) ---------------- */
+keystone.get("/api/videos", requireUser, async (c) => {
+  const rows = await db.select().from(videoJobs)
+    .where(eq(videoJobs.userId, c.get("user").id)).orderBy(desc(videoJobs.createdAt));
+  return c.json(rows.map((r) => ({ id: r.id, title: r.title, format: r.format, status: r.status, videoUrl: r.videoUrl, error: r.error, createdAt: r.createdAt })));
+});
+keystone.post("/api/videos", requireUser, requireSub, async (c) => {
+  if (!heygenConfigured()) return c.json({ error: "Video generation is not connected yet." }, 503);
+  const body = await c.req.json().catch(() => ({}));
+  const script = clean(body.script, 2000);
+  if (!script) return c.json({ error: "Give me the script for the avatar to speak." }, 400);
+  const format = ["landscape", "portrait", "square"].includes(body.format) ? body.format : "landscape";
+  const title = clean(body.title, 120) || script.slice(0, 60);
+  try {
+    const { video_id } = await heygenGenerateVideo({ script, format, title });
+    const [job] = await db.insert(videoJobs).values({ userId: c.get("user").id, heygenVideoId: video_id, title, script, format, status: "queued" }).returning();
+    return c.json({ id: job.id, status: "queued" });
+  } catch (e: any) { return c.json({ error: e?.message || "Could not start the video." }, 500); }
+});
+keystone.get("/api/videos/:id", requireUser, async (c) => {
+  const id = Number(c.req.param("id"));
+  const [job] = await db.select().from(videoJobs).where(and(eq(videoJobs.id, id), eq(videoJobs.userId, c.get("user").id)));
+  if (!job) return c.json({ error: "Video not found." }, 404);
+  if (job.status !== "completed" || !job.videoUrl) {
+    try {
+      const s = await heygenVideoStatus(job.heygenVideoId);
+      const patch: any = { status: s.status, updatedAt: new Date() };
+      if (s.status === "completed" && s.video_url) patch.videoUrl = s.video_url;
+      if (s.status === "failed") patch.error = s.error || "Rendering failed.";
+      await db.update(videoJobs).set(patch).where(eq(videoJobs.id, job.id));
+      Object.assign(job, patch);
+    } catch { /* keep last known status */ }
+  }
+  return c.json({ id: job.id, title: job.title, format: job.format, status: job.status, videoUrl: job.videoUrl, error: job.error });
+});
+
 /* ---------------- funnels: AI-generated lead capture pages ---------------- */
 
 /** Daily lead-capture allowance per plan (funnel opt-ins). Lifetime = top tier. */
