@@ -1,11 +1,13 @@
 /** AI media generation: images (OpenAI DALL-E), voiceover (OpenAI TTS), background removal (Leonardo AI). */
 
-export const openaiConfigured = () => !!process.env.OPENAI_API_KEY;
+/* Accept either env name — Railway has it as OPENAI_APP_KEY. */
+const openaiKey = () => process.env.OPENAI_API_KEY || process.env.OPENAI_APP_KEY;
+export const openaiConfigured = () => !!openaiKey();
 export const leonardoConfigured = () => !!process.env.LEONARDO_API_KEY;
 
 /** Generate an image with DALL-E 3. Returns a public image URL. */
 export async function generateImage(prompt: string): Promise<string> {
-  const key = process.env.OPENAI_API_KEY;
+  const key = openaiKey();
   if (!key) throw new Error("Image generation is not connected yet.");
   const r = await fetch("https://api.openai.com/v1/images/generations", {
     method: "POST",
@@ -21,7 +23,7 @@ export async function generateImage(prompt: string): Promise<string> {
 
 /** Text-to-speech with OpenAI. Returns MP3 bytes. */
 export async function textToSpeech(text: string, voice = "alloy"): Promise<Buffer> {
-  const key = process.env.OPENAI_API_KEY;
+  const key = openaiKey();
   if (!key) throw new Error("Voiceover is not connected yet.");
   const v = ["alloy", "echo", "fable", "onyx", "nova", "shimmer"].includes(voice) ? voice : "alloy";
   const r = await fetch("https://api.openai.com/v1/audio/speech", {
