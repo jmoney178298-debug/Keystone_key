@@ -83,7 +83,7 @@ let artifact=null; // {name, code}
 let limits={plan:'basic',limit:20,used:0};
 const dshort=t=>{try{return new Date(t).toLocaleDateString(undefined,{month:'short',day:'numeric'})}catch(e){return''}};
 
-const NAV=[['assist','Assistant'],['funnels','Funnels & Leads'],['videos','Videos'],['aff','Affiliates'],['bill','Billing']];
+const NAV=[['assist','Assistant'],['funnels','Funnels & Leads'],['videos','Videos'],['studio','Studio'],['aff','Affiliates'],['bill','Billing']];
 function renderSide(){
   $('#side').innerHTML='<div class="logo">AI<i>U</i></div>'+
     NAV.concat(isAdmin?[['admin','Admin']]:[]).map(n=>`<button class="nav ${n[0]==view?'on':''}" onclick="setView('${n[0]}')">${n[1]}${n[0]=='funnels'&&newLeadCount()>0?` <span class="pill" style="border-color:var(--lime);color:var(--lime)">${newLeadCount()} new</span>`:''}</button>`).join('')+
@@ -301,6 +301,26 @@ function vVideos(){
 async function vidCreate(){const t=document.getElementById('vidTitle'),s=document.getElementById('vidScript'),f=document.getElementById('vidFormat');if(!s.value.trim()){toast('Write the script first.');return}const r=await api('/api/videos',{script:s.value,title:t.value,format:f.value});if(r.ok){toast('Video rendering started — check back in a few minutes.');s.value='';t.value='';vidLoad()}else toast(r.data.error||'Could not start the video.')}
 async function vidCheck(id){const r=await api('/api/videos/'+id);if(r.ok)vidLoad();else toast(r.data.error||'Check failed.')}
 
+/* ---------- studio ---------- */
+let STUDIO=[],STUDIOERR='',STUDIOQUOTA=null,STUDIOUNLIMITED=false;
+async function studioLoad(){try{const r=await api('/api/studio/jobs');if(r.ok){STUDIO=r.data.jobs||[];STUDIOQUOTA=r.data.quota||null;STUDIOUNLIMITED=!!r.data.unlimited;STUDIOERR=''}else{STUDIO='err';STUDIOERR=r.data&&r.data.error||'Could not load.'}}catch(e){STUDIO='err';STUDIOERR='Could not load.'}if(view=='studio')render()}
+function vStudio(){
+  const quotaLine=STUDIOUNLIMITED?'<span class="pill" style="border-color:var(--lime);color:var(--lime)">Unlimited</span>':STUDIOQUOTA?`<span class="pill">${STUDIOQUOTA.used}/${STUDIOQUOTA.limit} this month</span>`:'';
+  const jobs=STUDIO===null?'<div class="card">Loading...</div>':STUDIO==='err'?`<div class="card"><b>Couldn't load</b><p style="color:var(--stone)">${esc(STUDIOERR)}</p><div class="row" style="margin-top:10px"><button class="btn lime" onclick="STUDIO=null;STUDIOERR='';render();studioLoad()">Try again</button></div></div>`
+  :STUDIO.length?STUDIO.map(j=>{const preview=j.kind=='image'?`<img src="${esc(j.resultUrl)}" style="max-width:100%;border-radius:10px;margin-top:8px" loading="lazy">`:j.kind=='tts'?`<audio controls src="${esc(j.resultUrl)}" style="width:100%;margin-top:8px"></audio>`:`<img src="${esc(j.resultUrl)}" style="max-width:100%;border-radius:10px;margin-top:8px" loading="lazy">`;
+    const label=j.kind=='image'?'Image':j.kind=='tts'?'Voiceover':'BG removed';
+    return `<div class="card"><div class="row" style="justify-content:space-between"><div><b>${label}</b> <span class="pill">${new Date(j.createdAt).toLocaleDateString()}</span></div><button class="btn ghost" onclick="window.open('${esc(j.resultUrl)}','_blank')">Open</button></div><p class="sub">${esc((j.prompt||'').slice(0,140))}</p>${preview}</div>`}).join('')
+  :'<div class="card"><p style="color:var(--stone)">Nothing created yet. Generate an image, a voiceover, or remove a background below.</p></div>';
+  return `<div class="fade"><h1>Stu<i>dio</i></h1><p class="sub">AI creative tools — images, voiceovers and background removal for your ads and funnels. ${quotaLine}</p>
+  <div class="card"><b>Generate an image</b><p class="sub">Ad creatives, funnel heroes, social posts.</p><div style="display:grid;gap:8px;margin-top:10px"><textarea id="stImgPrompt" placeholder="Describe the image — e.g. 'bold product shot of a black gaming headset on neon background'..." maxlength="1000" style="min-height:70px"></textarea><div class="row"><button class="btn lime" onclick="studioImage()">Generate image</button></div></div></div>
+  <div class="card"><b>Voiceover</b><p class="sub">Turn text into spoken audio for ads and videos.</p><div style="display:grid;gap:8px;margin-top:10px"><textarea id="stTtsText" placeholder="Paste the script for the voiceover..." maxlength="4000" style="min-height:70px"></textarea><div class="row"><select id="stTtsVoice" style="background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px;color:var(--txt)"><option value="alloy">Alloy — neutral</option><option value="nova">Nova — warm female</option><option value="onyx">Onyx — deep male</option><option value="echo">Echo — clear male</option><option value="fable">Fable — storytelling</option><option value="shimmer">Shimmer — bright female</option></select><button class="btn lime" onclick="studioTts()">Generate voiceover</button></div></div></div>
+  <div class="card"><b>Remove background</b><p class="sub">Product photos and headshots, transparent PNG in seconds.</p><div style="display:grid;gap:8px;margin-top:10px"><input id="stBgUrl" placeholder="Paste an image URL..." style="background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px;color:var(--txt)"><div class="row"><button class="btn lime" onclick="studioBg()">Remove background</button></div></div></div>
+  <div id="studiobody">${jobs}</div></div>`;
+}
+async function studioImage(){const p=document.getElementById('stImgPrompt');if(!p.value.trim()){toast('Describe the image first.');return}toast('Generating image...');const r=await api('/api/studio/image',{prompt:p.value});if(r.ok){p.value='';studioLoad()}else toast(r.data.error||'Image generation failed.')}
+async function studioTts(){const t=document.getElementById('stTtsText'),v=document.getElementById('stTtsVoice');if(!t.value.trim()){toast('Enter the text first.');return}toast('Generating voiceover...');const r=await api('/api/studio/tts',{text:t.value,voice:v.value});if(r.ok){t.value='';studioLoad()}else toast(r.data.error||'Voiceover failed.')}
+async function studioBg(){const u=document.getElementById('stBgUrl');if(!u.value.trim()){toast('Paste an image URL first.');return}toast('Removing background...');const r=await api('/api/studio/bgremove',{imageUrl:u.value});if(r.ok){u.value='';studioLoad()}else toast(r.data.error||'Background removal failed.')}
+
 /* ---------- affiliates ---------- */
 let AFF=null,AFFERR='';
 async function affLoad(){try{const r=await api('/api/affiliates/me');AFF=r.ok?r.data:'err';AFFERR=r.ok?'':(r.data&&r.data.error||'Could not load.')}catch(e){AFF='err';AFFERR='Could not load.'}if(view=='aff')render()}
@@ -390,10 +410,11 @@ async function ideaStatus(id,status){await fetch('/api/admin/ideas/'+id+'/status
 /* ---------- boot ---------- */
 function render(){
   renderSide();
-  $('#main').innerHTML=({assist:vAssist,funnels:vFunnels,videos:vVideos,aff:vAff,bill:vBill,admin:vAdmin})[view]();
+  $('#main').innerHTML=({assist:vAssist,funnels:vFunnels,videos:vVideos,studio:vStudio,aff:vAff,bill:vBill,admin:vAdmin})[view]();
   if(view=='assist'){renderArtifact();const l=$('#chatlog');if(l)l.scrollTop=l.scrollHeight}
   if(view=='funnels')funLoad();
   if(view=='videos')vidLoad();
+  if(view=='studio')studioLoad();
   if(view=='aff')affLoad();
   if(view=='bill')billLoad();
   if(view=='admin')admLoad();
