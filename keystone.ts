@@ -665,21 +665,21 @@ function renderVideoFunnelPage(d: {
     ? `<div class="vid"><iframe src="${escHtml(d.videoUrl)}" frameborder="0" allow="accelerometer; autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe></div>`
     : `<div class="vid placeholder"><div><p style="font-size:18px;font-weight:700;margin:0 0 8px">Your video goes here</p><p style="opacity:.7;margin:0;font-size:15px">Paste a YouTube, Loom, or Vimeo link when you edit this funnel and it will play right here.</p></div></div>`;
   return `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escHtml(d.title)}</title><style>
-*{box-sizing:border-box}body{margin:0;font:17px/1.6 system-ui,sans-serif;color:#0B0F1A;background:#0B0F1A}
-.h{padding:9vh 5vw 4vh;text-align:center;color:#fff}.h h1{font-size:clamp(32px,6vw,60px);line-height:1.1;margin:0 0 14px;letter-spacing:-.03em}.h p{font-size:19px;max-width:640px;margin:0 auto;opacity:.85}
+*{box-sizing:border-box}body{margin:0;font:17px/1.6 system-ui,sans-serif;color:#edf4f6;background:#071016}
+.h{padding:9vh 5vw 4vh;text-align:center;color:#edf4f6}.h h1{font-size:clamp(32px,6vw,60px);line-height:1.1;margin:0 0 14px;letter-spacing:-.03em}.h p{font-size:19px;max-width:640px;margin:0 auto;opacity:.85}
 .vid{max-width:860px;margin:4vh auto;padding:0 5vw}.vid iframe{width:100%;aspect-ratio:16/9;border-radius:16px;box-shadow:0 20px 60px rgba(0,0,0,.5)}
-.vid.placeholder>div{background:#141B30;border:2px dashed #2A3350;border-radius:16px;aspect-ratio:16/9;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#fff;text-align:center;padding:20px}
-.cta-row{text-align:center;padding:3vh 5vw}.b{display:inline-block;background:#19E6B4;color:#0B0F1A;padding:15px 38px;border-radius:999px;text-decoration:none;font-weight:800;font-size:18px}
+.vid.placeholder>div{background:#161c22;border:2px dashed #38434e;border-radius:16px;aspect-ratio:16/9;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#edf4f6;text-align:center;padding:20px}
+.cta-row{text-align:center;padding:3vh 5vw}.b{display:inline-block;background:#ff4f33;color:#071016;padding:15px 38px;border-radius:999px;text-decoration:none;font-weight:800;font-size:18px}
 ul.ben{list-style:none;padding:4vh 5vw 2vh;display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;max-width:1000px;margin:0 auto}
-ul.ben li{background:#141B30;color:#fff;border-radius:14px;padding:16px;font-weight:600}
-.w{padding:5vh 5vw;max-width:860px;margin:0 auto;color:#fff}.w h2{font-size:28px;margin:0 0 12px;letter-spacing:-.02em}.w p{color:#9AA3B8;max-width:680px}
-#leadform{padding:8vh 5vw;background:#F4F6FA;color:#0B0F1A;text-align:center}#leadform h2{font-size:32px;margin:0 0 8px}#leadform p{color:#5B6475;margin:0 0 18px}
+ul.ben li{background:#161c22;color:#edf4f6;border-radius:14px;padding:16px;font-weight:600}
+.w{padding:5vh 5vw;max-width:860px;margin:0 auto;color:#edf4f6}.w h2{font-size:28px;margin:0 0 12px;letter-spacing:-.02em}.w p{color:#9AA3B8;max-width:680px}
+#leadform{padding:8vh 5vw;background:#071016;color:#071016;text-align:center}#leadform h2{font-size:32px;margin:0 0 8px}#leadform p{color:#93a3ad;margin:0 0 18px}
 #leadform form{display:grid;gap:10px;max-width:480px;margin:0 auto}#leadform input{padding:13px;border-radius:10px;border:1px solid #D5DAE5;font-size:16px}
-#leadform button{padding:15px;border-radius:999px;border:0;background:#4F5BFF;color:#fff;font-weight:800;font-size:17px;cursor:pointer}
-#leadform .ok{display:none;background:#E6FBF4;border:1px solid #19E6B4;border-radius:12px;padding:16px;max-width:480px;margin:0 auto}
-footer{padding:22px 5vw;font-size:13px;color:#5B6475;text-align:center;background:#0B0F1A}
+#leadform button{padding:15px;border-radius:999px;border:0;background:#ff4f33;color:#edf4f6;font-weight:800;font-size:17px;cursor:pointer}
+#leadform .ok{display:none;background:rgba(255,79,51,.08);border:1px solid #ff4f33;border-radius:12px;padding:16px;max-width:480px;margin:0 auto}
+footer{padding:22px 5vw;font-size:13px;color:#93a3ad;text-align:center;background:#071016}
 .sticky{position:fixed;bottom:0;left:0;right:0;background:rgba(11,15,26,.95);backdrop-filter:blur(8px);padding:12px 5vw;display:flex;align-items:center;justify-content:space-between;gap:12px;z-index:50}
-.sticky span{color:#fff;font-weight:700;font-size:15px}.sticky a{background:#19E6B4;color:#0B0F1A;padding:10px 24px;border-radius:999px;text-decoration:none;font-weight:800;font-size:15px;white-space:nowrap}
+.sticky span{color:#edf4f6;font-weight:700;font-size:15px}.sticky a{background:#ff4f33;color:#071016;padding:10px 24px;border-radius:999px;text-decoration:none;font-weight:800;font-size:15px;white-space:nowrap}
 body{padding-bottom:76px}
 </style></head><body>
 <div class="h"><h1>${escHtml(d.headline)}</h1><p>${escHtml(d.subhead)}</p></div>
@@ -703,17 +703,17 @@ function renderFunnelPage(d: {
   const sections = (Array.isArray(d.sections) ? d.sections : []).slice(0, 4).map((s) =>
     `<section class="w"><h2>${escHtml(s.h)}</h2><p>${escHtml(s.p)}</p></section>`).join("");
   return `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escHtml(d.title)}</title><style>
-*{box-sizing:border-box}body{margin:0;font:17px/1.6 system-ui,sans-serif;color:#0B0F1A;background:#F4F6FA}
-.h{padding:11vh 5vw;background:#4F5BFF;color:#fff}.h h1{font-size:clamp(36px,7vw,72px);line-height:1;margin:0 0 14px;letter-spacing:-.03em}.h p{font-size:20px;max-width:640px;margin:0 0 18px;opacity:.92}
-.b{display:inline-block;background:#19E6B4;color:#0B0F1A;padding:13px 30px;border-radius:999px;text-decoration:none;font-weight:800;font-size:17px}
-.w{padding:6vh 5vw}.w h2{font-size:30px;margin:0 0 12px;letter-spacing:-.02em}.w p{max-width:680px;color:#3A4356}
+*{box-sizing:border-box}body{margin:0;font:17px/1.6 system-ui,sans-serif;color:#edf4f6;background:#071016}
+.h{padding:11vh 5vw;background:#ff4f33;color:#edf4f6}.h h1{font-size:clamp(36px,7vw,72px);line-height:1;margin:0 0 14px;letter-spacing:-.03em}.h p{font-size:20px;max-width:640px;margin:0 0 18px;opacity:.92}
+.b{display:inline-block;background:#ff4f33;color:#071016;padding:13px 30px;border-radius:999px;text-decoration:none;font-weight:800;font-size:17px}
+.w{padding:6vh 5vw}.w h2{font-size:30px;margin:0 0 12px;letter-spacing:-.02em}.w p{max-width:680px;color:#93a3ad}
 ul.ben{list-style:none;padding:0 5vw 2vh;display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}
-ul.ben li{background:#fff;border-radius:14px;padding:16px;box-shadow:0 1px 2px rgba(11,15,26,.06);font-weight:600}
-#leadform{padding:8vh 5vw;background:#0B0F1A;color:#fff}#leadform h2{font-size:32px;margin:0 0 8px}#leadform p{opacity:.75;margin:0 0 18px}
-#leadform form{display:grid;gap:10px;max-width:480px}#leadform input{padding:13px;border-radius:10px;border:1px solid #2A3350;background:#141B30;color:#fff;font-size:16px}
-#leadform button{padding:15px;border-radius:999px;border:0;background:#19E6B4;color:#0B0F1A;font-weight:800;font-size:17px;cursor:pointer}
-#leadform .ok{display:none;background:#123326;border:1px solid #19E6B4;border-radius:12px;padding:16px;max-width:480px}
-footer{padding:22px 5vw;font-size:13px;color:#5B6475}
+ul.ben li{background:#edf4f6;border-radius:14px;padding:16px;box-shadow:0 1px 2px rgba(11,15,26,.06);font-weight:600}
+#leadform{padding:8vh 5vw;background:#071016;color:#edf4f6}#leadform h2{font-size:32px;margin:0 0 8px}#leadform p{opacity:.75;margin:0 0 18px}
+#leadform form{display:grid;gap:10px;max-width:480px}#leadform input{padding:13px;border-radius:10px;border:1px solid #38434e;background:#161c22;color:#edf4f6;font-size:16px}
+#leadform button{padding:15px;border-radius:999px;border:0;background:#ff4f33;color:#071016;font-weight:800;font-size:17px;cursor:pointer}
+#leadform .ok{display:none;background:#123326;border:1px solid #ff4f33;border-radius:12px;padding:16px;max-width:480px}
+footer{padding:22px 5vw;font-size:13px;color:#93a3ad}
 </style></head><body>
 <div class="h"><h1>${escHtml(d.headline)}</h1><p>${escHtml(d.subhead)}</p><a class="b" href="#leadform">${escHtml(d.cta || "Get started")}</a></div>
 <ul class="ben">${bullets}</ul>${sections}
@@ -790,21 +790,21 @@ keystone.get("/f/:slug", async (c) => {
 keystone.get("/blog", async (c) => {
   const posts = await db.select().from(blgPosts).orderBy(desc(blgPosts.publishedAt));
   const cards = posts.map(p => `
-    <a href="/blog/${p.slug}" style="display:block;text-decoration:none;color:inherit;border:1px solid #e5e7eb;border-radius:12px;overflow:hidden;background:#fff">
+    <a href="/blog/${p.slug}" style="display:block;text-decoration:none;color:inherit;border:1px solid #38434e;border-radius:12px;overflow:hidden;background:#edf4f6">
       ${p.heroImageUrl ? `<img src="${p.heroImageUrl}" alt="" style="width:100%;height:180px;object-fit:cover;display:block">` : ""}
       <div style="padding:18px"><h2 style="margin:0 0 8px;font-size:20px">${escHtml(p.title)}</h2>
-      ${p.metaDescription ? `<p style="margin:0;color:#5B6475;font-size:15px">${escHtml(p.metaDescription)}</p>` : ""}</div>
+      ${p.metaDescription ? `<p style="margin:0;color:#93a3ad;font-size:15px">${escHtml(p.metaDescription)}</p>` : ""}</div>
     </a>`).join("");
   return c.html(`<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Blog — AIU: Amp It Up</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="description" content="SEO and marketing guides from AIU: Amp It Up.">
 <link rel="canonical" href="https://www.getaiu.online/blog"></head>
-<body style="margin:0;font:500 16px/1.6 system-ui,sans-serif;background:#F4F6FA;color:#0B0F1A">
+<body style="margin:0;font:500 16px/1.6 system-ui,sans-serif;background:#071016;color:#071016">
 <div style="max-width:900px;margin:0 auto;padding:48px 20px">
 <h1 style="font-size:32px;margin:0 0 8px">Blog</h1>
-<p style="color:#5B6475;margin:0 0 28px">Guides on SEO, funnels and growing with AI.</p>
+<p style="color:#93a3ad;margin:0 0 28px">Guides on SEO, funnels and growing with AI.</p>
 <div style="display:grid;gap:20px;grid-template-columns:repeat(auto-fill,minmax(260px,1fr))">${cards || "<p>No articles yet.</p>"}</div>
-<p style="margin-top:32px"><a href="/" style="color:#4F5BFF">← Back to AIU</a></p></div></body></html>`);
+<p style="margin-top:32px"><a href="/" style="color:#ff4f33">← Back to AIU</a></p></div></body></html>`);
 });
 
 /** Blog: one synced article, with its JSON-LD in the head. */
@@ -818,15 +818,15 @@ keystone.get("/blog/:slug", async (c) => {
 ${p.metaDescription ? `<meta name="description" content="${escHtml(p.metaDescription)}">` : ""}
 <link rel="canonical" href="https://www.getaiu.online/blog/${p.slug}">
 ${ld}</head>
-<body style="margin:0;font:500 17px/1.7 system-ui,sans-serif;background:#fff;color:#0B0F1A">
+<body style="margin:0;font:500 17px/1.7 system-ui,sans-serif;background:#edf4f6;color:#071016">
 <div style="max-width:720px;margin:0 auto;padding:48px 20px">
-<p><a href="/blog" style="color:#4F5BFF;text-decoration:none">← Blog</a></p>
+<p><a href="/blog" style="color:#ff4f33;text-decoration:none">← Blog</a></p>
 <h1 style="font-size:34px;line-height:1.25;margin:0 0 8px">${escHtml(p.title)}</h1>
-${pub ? `<p style="color:#5B6475;font-size:14px;margin:0 0 24px">${pub}</p>` : ""}
+${pub ? `<p style="color:#93a3ad;font-size:14px;margin:0 0 24px">${pub}</p>` : ""}
 ${p.heroImageUrl ? `<img src="${p.heroImageUrl}" alt="" style="width:100%;border-radius:12px;margin:0 0 24px">` : ""}
 <article>${p.contentHtml || `<pre style="white-space:pre-wrap">${escHtml(p.contentMarkdown || "")}</pre>`}</article>
-<hr style="margin:40px 0;border:none;border-top:1px solid #e5e7eb">
-<p><a href="/" style="color:#4F5BFF">Try AIU — your all-in-one AI assistant</a></p>
+<hr style="margin:40px 0;border:none;border-top:1px solid #38434e">
+<p><a href="/" style="color:#ff4f33">Try AIU — your all-in-one AI assistant</a></p>
 </div></body></html>`);
 });
 
