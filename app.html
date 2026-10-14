@@ -65,7 +65,7 @@ a{color:var(--volt2)}
 .fade>*{animation:up .4s both}
 @keyframes up{from{opacity:0;transform:translateY(10px)}}
 @media(prefers-reduced-motion:reduce){.fade>*{animation:none}}
-@media(max-width:800px){body{flex-direction:column}.side{width:100%;flex-direction:row;overflow-x:auto;padding:10px;align-items:center}.logo{padding:0 10px;font-size:24px}.nav{white-space:nowrap;padding:8px 12px}.side .foot{display:none}main{padding:16px}.composer{position:static}}
+@media(max-width:800px){body{flex-direction:column}.side{width:100%;flex-direction:row;overflow-x:auto;padding:10px;align-items:center}.logo{padding:0 10px;font-size:24px}.nav{white-space:nowrap;padding:8px 12px}.side .foot .pill,.side .foot #pwaBtn{display:none}.side .foot{display:flex;flex-direction:row;padding:0}main{padding:16px}.composer{position:static}}
 </style></head><body>
 <nav class="side" id="side"></nav><main id="main"></main>
 <script>
@@ -90,8 +90,14 @@ function renderSide(){
     `<div class="foot"><span class="pill">${limits.limit<0?'AI: unlimited':`AI: ${limits.used}/${limits.limit} today`}</span><button class="nav" id="pwaBtn" style="display:none;border:1px solid var(--lime);color:var(--lime)" onclick="pwaInstall()">Install app</button><button class="nav" onclick="out()">Sign out</button></div>`;
   showPwaBtn();
 }
-function setView(v){view=v;artifactTab='preview';if(v=='assist'){chatId=null;msgs=[];artifact=null;loadConvos()}render()}
-async function out(){await api('/api/auth/sign-out',{});location.href='/'}
+function setView(v){view=v;artifactTab='preview';if(v=='assist'){loadConvos()}render()}
+async function out(){await api('/api/auth/sign-out',{});try{localStorage.removeItem('aiu_chat')}catch(e){}location.href='/'}
+/* Keep the current chat across tab switches and app backgrounding: remember chatId for 30 min. */
+const CHAT_GRACE_MS=30*60*1000;
+function saveChatState(){try{if(chatId)localStorage.setItem('aiu_chat',JSON.stringify({chatId,at:Date.now()}));else localStorage.removeItem('aiu_chat')}catch(e){}}
+function restoreChatState(){try{const s=JSON.parse(localStorage.getItem('aiu_chat')||'null');if(s&&s.chatId&&Date.now()-s.at<CHAT_GRACE_MS){openConvo(s.chatId)}}catch(e){}}
+setInterval(saveChatState,15000);
+window.addEventListener('pagehide',saveChatState);
 
 /* ---------- chat ---------- */
 const CHIPS=['Build me a funnel for roofers','Show my new leads','Build a landing page for my business','What is my plan?'];
@@ -213,6 +219,7 @@ async function sendChat(prefill){
   else if(!r.ok){msgs.push({role:'assistant',content:r.data.error||'Something went wrong. Try again.'});}
   else{
     chatId=r.data.conversationId||chatId;
+    saveChatState();
     let reply=String(r.data.reply||'');
     const m=reply.match(/```html-artifact\s*\n([\s\S]*?)```/);
     if(m){artifact={name:text.slice(0,48)||'project',code:m[1].trim()};reply=stripArtifact(reply)||'Done — your project is ready in the preview panel below.';}
@@ -223,7 +230,7 @@ async function sendChat(prefill){
   const l2=$('#chatlog'); if(l2) l2.scrollTop=l2.scrollHeight;
   const lim=await api('/api/assistant/limits'); if(lim.ok){limits=lim.data;renderSide()}
 }
-function newChat(){chatId=null;msgs=[];artifact=null;render()}
+function newChat(){chatId=null;msgs=[];artifact=null;saveChatState();render()}
 async function loadConvos(){
   const r=await api('/api/assistant/conversations');
   convos=r.ok?r.data:[];
@@ -234,7 +241,7 @@ async function openConvo(id){
   if(!id)return;
   const r=await api('/api/assistant/conversations/'+id);
   if(!r.ok){toast('Could not open that conversation');loadConvos();return}
-  chatId=r.data.id; artifact=null;
+  chatId=r.data.id; artifact=null; saveChatState();
   msgs=(r.data.messages||[]).map(m=>({role:m.role,content:m.content}));
   for(let i=msgs.length-1;i>=0;i--){
     if(msgs[i].role=='assistant'){
@@ -247,7 +254,7 @@ async function openConvo(id){
 async function delConvo(){
   if(!chatId||!confirm('Delete this conversation?'))return;
   await fetch('/api/assistant/conversations/'+chatId,{method:'DELETE'});
-  chatId=null;msgs=[];artifact=null;loadConvos();render();
+  chatId=null;msgs=[];artifact=null;saveChatState();loadConvos();render();
 }
 
 /* ---------- funnels & leads ---------- */
@@ -425,7 +432,7 @@ function render(){
   const b=await api('/api/billing/status');
   if(b.ok&&b.data){isAdmin=!!b.data.isAdmin;planLabel=b.data.status;signedIn=true}
   const lim=await api('/api/assistant/limits'); if(lim.ok)limits=lim.data;
-  render(); loadConvos();
+  render(); loadConvos(); restoreChatState();
   const q=new URLSearchParams(location.search).get('billing');
   if(q=='success'||q=='cancelled'){setTimeout(()=>toast(q=='success'?'Payment successful — welcome!':'Checkout was cancelled. No charge was made.'),600);history.replaceState(null,'',location.pathname)}
 })();
