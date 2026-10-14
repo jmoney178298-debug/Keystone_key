@@ -680,7 +680,7 @@ function renderVideoFunnelPage(d: {
 ul.ben{list-style:none;padding:4vh 5vw 2vh;display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;max-width:1000px;margin:0 auto}
 ul.ben li{background:#161c22;color:#edf4f6;border-radius:14px;padding:16px;font-weight:600}
 .w{padding:5vh 5vw;max-width:860px;margin:0 auto;color:#edf4f6}.w h2{font-size:28px;margin:0 0 12px;letter-spacing:-.02em}.w p{color:#9AA3B8;max-width:680px}
-#leadform{padding:8vh 5vw;background:#071016;color:#071016;text-align:center}#leadform h2{font-size:32px;margin:0 0 8px}#leadform p{color:#93a3ad;margin:0 0 18px}
+#leadform{padding:8vh 5vw;background:#071016;color:#edf4f6;text-align:center}#leadform h2{font-size:32px;margin:0 0 8px}#leadform p{color:#93a3ad;margin:0 0 18px}
 #leadform form{display:grid;gap:10px;max-width:480px;margin:0 auto}#leadform input{padding:13px;border-radius:10px;border:1px solid #D5DAE5;font-size:16px}
 #leadform button{padding:15px;border-radius:999px;border:0;background:#ff4f33;color:#edf4f6;font-weight:800;font-size:17px;cursor:pointer}
 #leadform .ok{display:none;background:rgba(255,79,51,.08);border:1px solid #ff4f33;border-radius:12px;padding:16px;max-width:480px;margin:0 auto}
@@ -794,6 +794,9 @@ keystone.get("/f/:slug", async (c) => {
 });
 
 /** Blog: public index of synced BabyLoveGrowth articles. */
+const adsenseClient = process.env.ADSENSE_CLIENT_ID || "";
+const adsenseScript = adsenseClient ? `<script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${adsenseClient}" crossorigin="anonymous"></script>` : "";
+const adsenseSlot = adsenseClient ? `<ins class="adsbygoogle" style="display:block;margin:24px 0" data-ad-client="${adsenseClient}" data-ad-format="auto" data-full-width-responsive="true"></ins><script>(adsbygoogle = window.adsbygoogle || []).push({});</script>` : "";
 keystone.get("/blog", async (c) => {
   const posts = await db.select().from(blgPosts).orderBy(desc(blgPosts.publishedAt));
   const cards = posts.map(p => `
@@ -805,11 +808,12 @@ keystone.get("/blog", async (c) => {
   return c.html(`<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Blog — AIU: Amp It Up</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="description" content="SEO and marketing guides from AIU: Amp It Up.">
-<link rel="canonical" href="https://www.getaiu.online/blog"></head>
-<body style="margin:0;font:500 16px/1.6 system-ui,sans-serif;background:#071016;color:#071016">
+<link rel="canonical" href="https://www.getaiu.online/blog">${adsenseScript}</head>
+<body style="margin:0;font:500 16px/1.6 system-ui,sans-serif;background:#071016;color:#edf4f6">
 <div style="max-width:900px;margin:0 auto;padding:48px 20px">
 <h1 style="font-size:32px;margin:0 0 8px">Blog</h1>
 <p style="color:#93a3ad;margin:0 0 28px">Guides on SEO, funnels and growing with AI.</p>
+${adsenseSlot}
 <div style="display:grid;gap:20px;grid-template-columns:repeat(auto-fill,minmax(260px,1fr))">${cards || "<p>No articles yet.</p>"}</div>
 <p style="margin-top:32px"><a href="/" style="color:#ff4f33">← Back to AIU</a></p></div></body></html>`);
 });
@@ -824,12 +828,13 @@ keystone.get("/blog/:slug", async (c) => {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 ${p.metaDescription ? `<meta name="description" content="${escHtml(p.metaDescription)}">` : ""}
 <link rel="canonical" href="https://www.getaiu.online/blog/${p.slug}">
-${ld}</head>
-<body style="margin:0;font:500 17px/1.7 system-ui,sans-serif;background:#edf4f6;color:#071016">
+${ld}${adsenseScript}</head>
+<body style="margin:0;font:500 17px/1.7 system-ui,sans-serif;background:#071016;color:#edf4f6">
 <div style="max-width:720px;margin:0 auto;padding:48px 20px">
 <p><a href="/blog" style="color:#ff4f33;text-decoration:none">← Blog</a></p>
 <h1 style="font-size:34px;line-height:1.25;margin:0 0 8px">${escHtml(p.title)}</h1>
 ${pub ? `<p style="color:#93a3ad;font-size:14px;margin:0 0 24px">${pub}</p>` : ""}
+${adsenseSlot}
 ${p.heroImageUrl ? `<img src="${p.heroImageUrl}" alt="" style="width:100%;border-radius:12px;margin:0 0 24px">` : ""}
 <article>${p.contentHtml || `<pre style="white-space:pre-wrap">${escHtml(p.contentMarkdown || "")}</pre>`}</article>
 <hr style="margin:40px 0;border:none;border-top:1px solid #38434e">
