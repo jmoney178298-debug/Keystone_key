@@ -11,7 +11,7 @@ import Stripe from "stripe";
 import crypto from "node:crypto";
 import { db, sqlite } from "./db";
 import { auth } from "./auth";
-import { affiliates, aiUsage, assistantConversations, assistantMessages, blgPosts, funnels, funnelLeads, ideas, leads, lifetimeAccess, limitHits, mediaJobs, partnerAccess, prospects, referrals, stripeEvents, subscriptions, videoJobs } from "./schema";
+import { affiliates, aiUsage, assistantConversations, assistantMessages, blgPosts, funnels, funnelLeads, ideas, leads, lifetimeAccess, limitHits, mediaJobs, partnerAccess, prospects, referrals, stripeEvents, subscriptions, trialIps, videoJobs } from "./schema";
 import { blgConfigured, blgGetArticle, blgListArticles, blgSyncArticles, blgUpsertArticle } from "./blg";
 import { heygenConfigured, heygenGenerateVideo, heygenVideoStatus } from "./heygen";
 import fs from "node:fs";
@@ -203,7 +203,14 @@ keystone.post("/api/billing/checkout", requireUser, async (c) => {
   const price = PRICES[plan as string];
   if (!price) return c.json({ error: "Unknown plan. Use basic, pro or proplus." }, 400);
   const [prev] = await db.select().from(subscriptions).where(eq(subscriptions.userId, user.id));
-  const trialDays = prev?.stripeSubscriptionId ? 0 : Number(process.env.TRIAL_DAYS ?? 7); // one free trial per account
+  // One free trial per IP: blocks trial abuse via new emails/accounts.
+  const ip = c.req.header("x-forwarded-for")?.split(",")[0]?.trim() || c.req.header("cf-connecting-ip") || "";
+  let trialDays = prev?.stripeSubscriptionId ? 0 : Number(process.env.TRIAL_DAYS ?? 7);
+  if (trialDays > 0 && ip) {
+    const [used] = await db.select().from(trialIps).where(eq(trialIps.ip, ip));
+    if (used) trialDays = 0;
+    else await db.insert(trialIps).values({ ip, userId: user.id }).catch(() => {});
+  }
   const affCode = await referralCodeFor(c, user.id);
   const session = await stripeCall(async () => stripe.checkout.sessions.create({
     mode: "subscription",
@@ -495,7 +502,7 @@ const clean = (v: unknown, max = 300) => (typeof v === "string" && v.trim() ? v.
 
 /* ---------------- spokesperson videos (HeyGen) ---------------- */
 /** Monthly video allowance per plan. Owner is unlimited. Videos cost HeyGen credits, so caps protect margins. */
-const VIDEO_MONTHLY_LIMIT: Record<string, number> = { basic: 2, pro: 5, proplus: 10, lifetime: 15 };
+const VIDEO_MONTHLY_LIMIT: Record<string, number> = { basic: 1, pro: 5, proplus: 10, lifetime: 15 };
 async function videoQuota(userId: string, isAdmin: boolean): Promise<{ ok: boolean; error?: string; used?: number; limit?: number }> {
   if (isAdmin) return { ok: true };
   const [s] = await db.select().from(subscriptions).where(eq(subscriptions.userId, userId));
@@ -550,7 +557,7 @@ keystone.get("/api/videos/:id", requireUser, async (c) => {
 
 /* ---------------- studio: AI images, voiceover, background removal ---------------- */
 /** Monthly studio allowance per plan (images + voiceovers + bg removals combined). Owner unlimited. */
-const STUDIO_MONTHLY_LIMIT: Record<string, number> = { basic: 10, pro: 30, proplus: 60, lifetime: 100 };
+const STUDIO_MONTHLY_LIMIT: Record<string, number> = { basic: 5, pro: 30, proplus: 60, lifetime: 100 };
 async function studioQuota(userId: string, isAdmin: boolean): Promise<{ ok: boolean; error?: string; used?: number; limit?: number }> {
   if (isAdmin) return { ok: true };
   const [s] = await db.select().from(subscriptions).where(eq(subscriptions.userId, userId));
@@ -633,7 +640,7 @@ keystone.get("/api/studio/file/:name", requireUser, async (c) => {
 /* ---------------- funnels: AI-generated lead capture pages ---------------- */
 
 /** Daily lead-capture allowance per plan (funnel opt-ins). Lifetime = top tier. */
-const LEAD_DAILY_LIMIT: Record<string, number> = { basic: 10, pro: 50, proplus: 200, lifetime: 200 };
+const LEAD_DAILY_LIMIT: Record<string, number> = { basic: 5, pro: 50, proplus: 200, lifetime: 200 };
 
 const slugify = (s: string) =>
   s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60) || "funnel";
@@ -1096,7 +1103,7 @@ keystone.route("/api/admin", admin);
 
 /* ---------------- AI: all-in-one assistant + funnel generation (subscribers) ---------------- */
 
-const DAILY_LIMIT: Record<string, number> = { basic: 20, pro: 100, proplus: 300, lifetime: 300 };
+const DAILY_LIMIT: Record<string, number> = { basic: 0, pro: 100, proplus: 300, lifetime: 300 };
 const AI_MODEL = process.env.AI_MODEL ?? "claude-sonnet-5-5";
 const JSON_ONLY = "Return ONLY valid JSON, no markdown fences, no commentary. ";
 const NO_HYPE = "Do not promise rankings, guaranteed results, lower ad costs, or exclusivity. Keep claims honest and specific. ";
@@ -1113,6 +1120,7 @@ async function aiQuota(userId: string, isAdmin: boolean): Promise<{ ok: boolean;
   if ((u?.n ?? 0) >= limit) {
     // Record the upgrade signal for the owner's admin view.
     await db.insert(limitHits).values({ userId, plan }).catch(() => {});
+    if (limit === 0) return { ok: false, error: `The AI assistant isn't included in the Basic plan. Upgrade to Pro to unlock it.`, limitHit: true, plan, limit };
     return { ok: false, error: `Daily AI limit reached (${limit}). It resets tomorrow, or upgrade your plan.`, limitHit: true, plan, limit };
   }
   await db.insert(aiUsage).values({ userId, day, n: 1 })

@@ -182,6 +182,14 @@ export const limitHits = sqliteTable("limit_hits", {
   createdAt: createdAt(),
 });
 
+/** IPs that have already used a free trial. Blocks trial abuse via new emails. One trial per IP. */
+export const trialIps = sqliteTable("trial_ips", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  ip: text("ip").notNull().unique(),
+  userId: text("user_id").notNull(),
+  createdAt: createdAt(),
+});
+
 /** Blog posts synced from the BabyLoveGrowth API. Upserted idempotently by slug. */
 export const blgPosts = sqliteTable("blg_posts", {  id: integer("id").primaryKey({ autoIncrement: true }),
   /** BLG article id */
