@@ -374,7 +374,10 @@ async function checkout(p){perr('');const r=await api('/api/billing/checkout',{p
 async function buyLifetime(){perr('');const s=await api('/api/billing/status');if(!s.ok){want('lifetime');location.hash='login';show('login');return}const r=await api('/api/billing/lifetime',{});if(r.ok&&r.data.url){try{sessionStorage.removeItem('want')}catch(e){}location.href=r.data.url}else perr(r.data.error||'Lifetime checkout is not available yet.')}
 async function buyPartner(){perr('');const s=await api('/api/billing/status');if(!s.ok){want('partner');location.hash='login';show('login');return}const r=await api('/api/billing/partner',{});if(r.ok&&r.data.url){try{sessionStorage.removeItem('want')}catch(e){}location.href=r.data.url}else perr(r.data.error||'Partner checkout is not available yet.')}
 async function go(){$('#msg').textContent='';const email=$('#e').value.trim(),password=$('#p').value;
- const r=signup?await api('/api/auth/sign-up/email',{name:$('#n').value.trim()||email,email,password}):await api('/api/auth/sign-in/email',{email,password});
+ if(!email){$('#msg').textContent='Enter your email.';return}
+ if(!password){$('#msg').textContent='Enter your password.';return}
+ if(signup&&password.length<10){$('#msg').textContent='Password must be at least 10 characters.';return}
+ let r;try{r=signup?await api('/api/auth/sign-up/email',{name:$('#n').value.trim()||email,email,password}):await api('/api/auth/sign-in/email',{email,password})}catch(e){$('#msg').textContent='Could not reach the server. Check your connection and try again.';return}
  if(!r.ok){$('#msg').textContent=r.data.message||'That did not work. Check your details and try again.';return}
  const p=want();if(p=='lifetime')return buyLifetime();if(p=='partner')return buyPartner();if(p)return checkout(p);location.hash='account';show('account')}
 async function acct(){const s=await api('/api/billing/status');
