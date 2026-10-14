@@ -69,7 +69,7 @@ a{color:var(--volt2)}
 @media(max-width:800px){body{flex-direction:column}.side{width:100%;flex-direction:row;overflow-x:auto;padding:10px;align-items:center}.logo{padding:0 10px;font-size:24px}.nav{white-space:nowrap;padding:8px 12px}.side .foot .pill,.side .foot #pwaBtn{display:none}.side .foot{display:flex;flex-direction:row;padding:0}main{padding:16px}.composer{position:static}}
 </style></head><body>
 <nav class="side" id="side"></nav><main id="main"></main>
-<div id="presence" style="position:fixed;top:12px;left:50%;transform:translateX(-50%);z-index:100;display:none;align-items:center;gap:10px;background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:8px 18px 8px 8px;box-shadow:0 4px 24px rgba(0,0,0,.4)"><div id="presenceAvatar" style="width:36px;height:36px;border-radius:50%;background:var(--lime);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:18px">A</div><div><div id="presenceName" style="font-weight:700;font-size:14px">Assistant</div><div id="presenceStatus" style="font-size:12px;color:var(--stone)">Ready</div></div><div id="presenceDot" style="width:10px;height:10px;border-radius:50%;background:#22c55e"></div></div>
+<div id="presence" style="position:fixed;top:12px;left:50%;transform:translateX(-50%);z-index:100;display:none;align-items:center;gap:10px;background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:8px 18px 8px 8px;box-shadow:0 4px 24px rgba(0,0,0,.4);cursor:move;touch-action:none;user-select:none"><div id="presenceAvatar" style="width:36px;height:36px;border-radius:50%;overflow:hidden;flex:none"><svg width="36" height="36" viewBox="0 0 48 48"><rect width="48" height="48" rx="12" fill="#161c22"/><path d="M10 33 L24 11 L38 33" stroke="#ff4f33" stroke-width="6.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/><circle cx="24" cy="36" r="3.2" fill="#ff4f33"/></svg></div><div><div id="presenceName" style="font-weight:700;font-size:14px">Assistant</div><div id="presenceStatus" style="font-size:12px;color:var(--stone)">Ready</div></div><div id="presenceDot" style="width:10px;height:10px;border-radius:50%;background:#22c55e"></div></div>
 <script>
 const $=s=>document.querySelector(s);
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -87,7 +87,7 @@ const dshort=t=>{try{return new Date(t).toLocaleDateString(undefined,{month:'sho
 
 const NAV=[['assist','Assistant'],['funnels','Funnels & Leads'],['videos','Videos'],['studio','Studio'],['aff','Affiliates']];
 function renderSide(){
-  $('#side').innerHTML='<div class="logo">AI<i>U</i></div>'+
+  $('#side').innerHTML='<div class="logo" style="display:flex;align-items:center;gap:10px"><svg width="36" height="36" viewBox="0 0 48 48"><rect width="48" height="48" rx="12" fill="#161c22" stroke="#38434e" stroke-width="1.5"/><path d="M10 33 L24 11 L38 33" stroke="#ff4f33" stroke-width="6.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/><circle cx="24" cy="36" r="3.2" fill="#ff4f33"/></svg><span>AI<i>U</i></span></div>'+
     NAV.concat(isAdmin?[['admin','Admin']]:[]).map(n=>`<button class="nav ${n[0]==view?'on':''}" onclick="setView('${n[0]}')">${n[1]}${n[0]=='funnels'&&newLeadCount()>0?` <span class="pill" style="border-color:var(--lime);color:var(--lime)">${newLeadCount()} new</span>`:''}</button>`).join('')+
     `<div class="foot"><span class="pill">${limits.limit<0?'AI: unlimited':`AI: ${limits.used}/${limits.limit} today`}</span><button class="nav" id="pwaBtn" style="display:none;border:1px solid var(--lime);color:var(--lime)" onclick="pwaInstall()">Install app</button><button class="nav" onclick="setView('bill')">Billing</button><button class="nav" onclick="out()">Sign out</button></div>`;
   showPwaBtn();
@@ -469,8 +469,39 @@ function updatePresence(){
   const p=document.getElementById('presence');if(!p)return;
   p.style.display=signedIn?'flex':'none';
   document.getElementById('presenceName').textContent=ASSISTANT_NAME;
-  document.getElementById('presenceAvatar').textContent=(ASSISTANT_NAME[0]||'A').toUpperCase();
+  restorePresencePos();
 }
+/* Draggable presence bar — position saved per user */
+function restorePresencePos(){
+  try{
+    const pos=JSON.parse(localStorage.getItem('presencePos')||'null');
+    const p=document.getElementById('presence');if(!p||!pos)return;
+    p.style.left=pos.x+'px';p.style.top=pos.y+'px';p.style.transform='none';
+  }catch(e){}
+}
+(function(){
+  const p=document.getElementById('presence');if(!p)return;
+  let sx=0,sy=0,ox=0,oy=0,dragging=false;
+  p.addEventListener('pointerdown',e=>{
+    // Don't start drag on text selection or button taps
+    if(e.target.closest('button'))return;
+    dragging=true;sx=e.clientX;sy=e.clientY;
+    const r=p.getBoundingClientRect();ox=r.left;oy=r.top;
+    p.style.transform='none';p.style.left=ox+'px';p.style.top=oy+'px';
+    p.setPointerCapture(e.pointerId);
+  });
+  p.addEventListener('pointermove',e=>{
+    if(!dragging)return;
+    const nx=Math.max(0,Math.min(window.innerWidth-p.offsetWidth,ox+e.clientX-sx));
+    const ny=Math.max(0,Math.min(window.innerHeight-p.offsetHeight,oy+e.clientY-sy));
+    p.style.left=nx+'px';p.style.top=ny+'px';
+  });
+  const end=e=>{
+    if(!dragging)return;dragging=false;
+    try{localStorage.setItem('presencePos',JSON.stringify({x:parseInt(p.style.left),y:parseInt(p.style.top)}))}catch(_){}
+  };
+  p.addEventListener('pointerup',end);p.addEventListener('pointercancel',end);
+})();
 function setPresenceStatus(text,working){
   const s=document.getElementById('presenceStatus'),d=document.getElementById('presenceDot');
   if(s)s.textContent=text;
