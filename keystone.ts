@@ -221,10 +221,19 @@ keystone.post("/api/billing/checkout", requireUser, async (c) => {
 });
 
 keystone.post("/api/billing/portal", requireUser, async (c) => {
-  const [s] = await db.select().from(subscriptions).where(eq(subscriptions.userId, c.get("user").id));
-  if (!s) return c.json({ error: "No billing account yet" }, 404);
+  const user = c.get("user");
+  let [s] = await db.select().from(subscriptions).where(eq(subscriptions.userId, user.id));
+  let customerId = s?.stripeCustomerId;
+  if (!customerId) {
+    // Fall back to Stripe lookup by email (e.g. trial started but webhook hasn't synced yet)
+    try {
+      const customers = await stripe.customers.list({ email: user.email, limit: 1 });
+      if (customers.data[0]) customerId = customers.data[0].id;
+    } catch {}
+  }
+  if (!customerId) return c.json({ error: "No billing account yet" }, 404);
   const portal = await stripe.billingPortal.sessions.create({
-    customer: s.stripeCustomerId,
+    customer: customerId,
     return_url: `${APP_URL}/app/billing`,
   });
   return c.json({ url: portal.url });
