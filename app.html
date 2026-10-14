@@ -2,19 +2,19 @@
 <html lang="en"><head><meta charset="utf-8"><title>AIU: Amp It Up</title>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <link rel="manifest" href="/pwa/manifest.json">
-<meta name="theme-color" content="#0B0F1A">
+<meta name="theme-color" content="#071016">
 <link rel="apple-touch-icon" href="/pwa/apple-touch-icon.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="AIU">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
 <style>
-:root{--ink:#0B0F1A;--panel:#141B30;--panel2:#1B2440;--line:rgba(255,255,255,.09);--paper:#EDEFF5;--white:#fff;
---volt:#5B8CFF;--volt2:#8FB0FF;--lime:#19E6B4;--blaze:#FF7A3D;--stone:#9AA3B5;--txt:#E8EBF3;--danger:#FF6B6B;
+:root{--ink:#071016;--panel:#161c22;--panel2:#222c35;--line:#38434e;--paper:#edf4f6;--white:#fff;
+--volt:#ff4f33;--volt2:#ff7a5e;--lime:#ff4f33;--blaze:#ff4f33;--stone:#93a3ad;--txt:#edf4f6;--danger:#FF6B6B;
 box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
 *,*:before,*:after{box-sizing:inherit}html,body{margin:0;height:100%}
 body{background:var(--ink);color:var(--txt);font:500 15px/1.55 'Inter',system-ui,sans-serif;display:flex}
-.side{width:248px;background:#0D1322;border-right:1px solid var(--line);padding:20px 14px;display:flex;flex-direction:column;gap:6px;flex:none}
+.side{width:248px;background:#0a141a;border-right:1px solid var(--line);padding:20px 14px;display:flex;flex-direction:column;gap:6px;flex:none}
 .logo{font:800 32px/1.05 'Inter',system-ui,sans-serif;padding:4px 10px 16px;color:#fff}
 .logo i{font-style:normal;color:var(--volt2)}
 .nav{background:none;border:0;color:var(--stone);text-align:left;padding:10px 14px;border-radius:12px;font:600 15px 'Inter',sans-serif;cursor:pointer;display:flex;align-items:center;gap:10px}
@@ -34,14 +34,14 @@ input:focus,select:focus,textarea:focus{outline:2px solid var(--volt);outline-of
 .btn{border:1px solid var(--volt);background:var(--volt);color:#fff;border-radius:999px;padding:10px 20px;font:600 14px 'Inter',sans-serif;cursor:pointer}
 .btn:hover{filter:brightness(1.08)}
 .btn.ghost{background:none;color:var(--txt);border-color:var(--line)}
-.btn.lime{background:var(--lime);border-color:var(--lime);color:#06231B}
+.btn.lime{background:var(--lime);border-color:var(--lime);color:#fff}
 .btn.danger{background:none;border-color:var(--danger);color:var(--danger)}
 .btn:disabled{opacity:.5;cursor:default}
 .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 .mono{font-family:'JetBrains Mono',monospace}
 .stat{font:800 46px/1 'Inter',system-ui,sans-serif;color:#fff}
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}
-pre{white-space:pre-wrap;background:#0D1322;border:1px solid var(--line);border-radius:10px;padding:12px;font:13px/1.5 'JetBrains Mono',monospace;margin:8px 0;color:var(--txt);overflow:auto}
+pre{white-space:pre-wrap;background:#0a141a;border:1px solid var(--line);border-radius:10px;padding:12px;font:13px/1.5 'JetBrains Mono',monospace;margin:8px 0;color:var(--txt);overflow:auto}
 /* chat */
 #chatlog{display:flex;flex-direction:column;gap:12px;margin-bottom:14px}
 .msg{max-width:860px;padding:12px 16px;border-radius:14px;white-space:pre-wrap;word-wrap:break-word}
@@ -75,7 +75,7 @@ const money=n=>'$'+(n||0).toLocaleString();
 const usd=c=>'$'+(c/100).toFixed(2);
 async function api(path,body){const r=await fetch(path,{method:body?'POST':'GET',headers:{'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined});return{ok:r.ok,status:r.status,data:await r.json().catch(()=>({}))}}
 function cp(t){try{navigator.clipboard.writeText(t);toast('Copied')}catch(e){prompt('Copy:',t)}}
-function toast(t){const d=document.createElement('div');d.style.cssText='position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#1B2440;border:1px solid rgba(255,255,255,.15);color:#E8EBF3;padding:10px 20px;border-radius:999px;font-size:14px;z-index:99';d.textContent=t;document.body.appendChild(d);setTimeout(()=>d.remove(),2400)}
+function toast(t){const d=document.createElement('div');d.style.cssText='position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#1B2440;border:1px solid rgba(255,255,255,.15);color:#edf4f6;padding:10px 20px;border-radius:999px;font-size:14px;z-index:99';d.textContent=t;document.body.appendChild(d);setTimeout(()=>d.remove(),2400)}
 
 let view='assist', isAdmin=false, planLabel='basic', signedIn=false;
 let msgs=[], chatId=null, convos=[];
@@ -465,17 +465,17 @@ function showUpgrade(plan,reason){
     :`You used all ${limits.limit} of today's AI requests on ${PLANS[cur]?.name||'your plan'}. Upgrade for more, or wait until tomorrow.`;
   const m=document.createElement('div');m.id='upModal';
   m.style.cssText='position:fixed;inset:0;z-index:10000;background:rgba(4,6,12,.7);display:flex;align-items:center;justify-content:center;padding:16px';
-  m.innerHTML=`<div style="background:#0D1322;border:1px solid #19E6B4;border-radius:18px;max-width:520px;width:100%;padding:24px;color:#E8EBF3">
+  m.innerHTML=`<div style="background:#0a141a;border:1px solid #ff4f33;border-radius:18px;max-width:520px;width:100%;padding:24px;color:#edf4f6">
     <h2 style="margin:0 0 6px;font-size:22px">${title}</h2>
     <p style="margin:0 0 18px;color:#9AA3B5;font-size:14px">${sub}</p>
-    <div style="border:1px solid #19E6B4;border-radius:12px;padding:14px 16px;margin-bottom:12px;background:rgba(25,230,180,.06)">
+    <div style="border:1px solid #ff4f33;border-radius:12px;padding:14px 16px;margin-bottom:12px;background:rgba(255,79,51,.08)">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-        <strong style="font-size:16px">${next.name}</strong><span style="color:#19E6B4;font-weight:700">${next.price}</span>
+        <strong style="font-size:16px">${next.name}</strong><span style="color:#ff4f33;font-weight:700">${next.price}</span>
       </div>
       <div style="font-size:13px;color:#9AA3B5">${next.ai} · ${next.lead}</div>
-      <button onclick="goBill()" style="margin-top:12px;width:100%;background:#19E6B4;border:0;color:#0B0F1A;border-radius:999px;padding:11px;font-weight:800;font-size:15px;cursor:pointer">Upgrade to ${next.name}</button>
+      <button onclick="goBill()" style="margin-top:12px;width:100%;background:#ff4f33;border:0;color:#fff;border-radius:999px;padding:11px;font-weight:800;font-size:15px;cursor:pointer">Upgrade to ${next.name}</button>
     </div>
-    <button onclick="goBill()" style="width:100%;background:none;border:1px solid rgba(255,255,255,.15);color:#E8EBF3;border-radius:999px;padding:10px;font-weight:600;cursor:pointer">Compare all plans</button>
+    <button onclick="goBill()" style="width:100%;background:none;border:1px solid rgba(255,255,255,.15);color:#edf4f6;border-radius:999px;padding:10px;font-weight:600;cursor:pointer">Compare all plans</button>
     <button onclick="document.getElementById('upModal').remove()" style="width:100%;background:none;border:0;color:#8a93a6;padding:10px;cursor:pointer;font-size:13px">Not now</button>
   </div>`;
   document.body.appendChild(m);
