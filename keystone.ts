@@ -1091,6 +1091,28 @@ admin.post("/ideas/:id/status", async (c) => {
 admin.get("/leads", async (c) => c.json(await db.select().from(leads).orderBy(desc(leads.createdAt))));
 admin.get("/limit-hits", async (c) =>
   c.json(await db.select().from(limitHits).orderBy(desc(limitHits.createdAt)).limit(200)));
+
+/** Admin: login/IP worksheet — every session with user, IP, device, plan, and trial status. */
+admin.get("/sessions", async (c) => {
+  const rows = sqlite.prepare(`
+    SELECT s.id, s.ipAddress, s.userAgent, s.createdAt, s.expiresAt,
+           u.email, u.name,
+           sub.plan, sub.status as subStatus,
+           CASE WHEN t.ip IS NOT NULL THEN 1 ELSE 0 END as usedTrial
+    FROM session s
+    JOIN user u ON u.id = s.userId
+    LEFT JOIN subscriptions sub ON sub.user_id = s.userId
+    LEFT JOIN trial_ips t ON t.ip = s.ipAddress
+    ORDER BY s.createdAt DESC LIMIT 500
+  `).all() as any[];
+  return c.json(rows.map(r => ({
+    id: r.id, ip: r.ipAddress || "—", userAgent: r.userAgent || "",
+    email: r.email, name: r.name,
+    plan: r.plan || "none", subStatus: r.subStatus || "none",
+    usedTrial: !!r.usedTrial,
+    createdAt: r.createdAt, expiresAt: r.expiresAt,
+  })));
+});
 admin.patch("/leads/:id", async (c) => {
   const { status } = await c.req.json().catch(() => ({}));
   if (!["new", "contacted", "won", "lost"].includes(status)) return c.json({ error: "Invalid status" }, 400);
