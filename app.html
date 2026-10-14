@@ -295,12 +295,15 @@ async function claimLead(id){const r=await api('/api/funnel-leads/'+id+'/claim',
 
 /* ---------- videos ---------- */
 let VIDS=[],VIDSERR='',VIDQUOTA=null,VIDUNLIMITED=false;
-async function vidLoad(){try{const r=await api('/api/videos');if(r.ok){VIDS=r.data.videos||[];VIDQUOTA=r.data.quota||null;VIDUNLIMITED=!!r.data.unlimited;VIDSERR=''}else{VIDS='err';VIDSERR=r.data&&r.data.error||'Could not load.'}}catch(e){VIDS='err';VIDSERR='Could not load.'}if(view=='videos')render()}
-function vVideos(){
-  const quotaLine=VIDUNLIMITED?'<span class="pill" style="border-color:var(--lime);color:var(--lime)">Unlimited</span>':VIDQUOTA?`<span class="pill">${VIDQUOTA.used}/${VIDQUOTA.limit} this month</span>`:'';
-  const list=VIDS===null?'<div class="card">Loading...</div>':VIDS==='err'?`<div class="card"><b>Couldn't load videos</b><p style="color:var(--stone)">${esc(VIDSERR)}</p><div class="row" style="margin-top:10px"><button class="btn lime" onclick="VIDS=null;VIDSERR='';render();vidLoad()">Try again</button></div></div>`
+async function vidLoad(){try{const r=await api('/api/videos');if(r.ok){VIDS=r.data.videos||[];VIDQUOTA=r.data.quota||null;VIDUNLIMITED=!!r.data.unlimited;VIDSERR=''}else{VIDS='err';VIDSERR=r.data&&r.data.error||'Could not load.'}}catch(e){VIDS='err';VIDSERR='Could not load.'}const b=document.getElementById('vidbody');if(b&&view=='videos')b.innerHTML=vidListHtml()}
+function vidListHtml(){
+  return VIDS===null?'<div class="card">Loading...</div>':VIDS==='err'?`<div class="card"><b>Couldn't load videos</b><p style="color:var(--stone)">${esc(VIDSERR)}</p><div class="row" style="margin-top:10px"><button class="btn lime" onclick="VIDS=null;VIDSERR='';render();vidLoad()">Try again</button></div></div>`
   :VIDS.length?VIDS.map(v=>`<div class="card"><div class="row" style="justify-content:space-between"><div><b>${esc(v.title||'Untitled')}</b> <span class="pill">${esc(v.format||'')}</span> <span class="pill">${esc(v.status||'')}</span></div>${v.status=='completed'&&v.videoUrl?`<button class="btn lime" onclick="window.open('${esc(v.videoUrl)}','_blank')">Watch</button>`:`<button class="btn ghost" onclick="vidCheck(${v.id})">Refresh</button>`}</div>${v.status=='failed'?`<p style="color:#f66">${esc(v.error||'Rendering failed.')}</p>`:v.status!='completed'?'<p class="sub">Rendering — check back in a few minutes.</p>':''}</div>`).join('')
   :'<div class="card"><p style="color:var(--stone)">No videos yet. Write a script below and your AI spokesperson will record it.</p></div>';
+}
+function vVideos(){
+  const quotaLine=VIDUNLIMITED?'<span class="pill" style="border-color:var(--lime);color:var(--lime)">Unlimited</span>':VIDQUOTA?`<span class="pill">${VIDQUOTA.used}/${VIDQUOTA.limit} this month</span>`:'';
+  const list=vidListHtml();
   return `<div class="fade"><h1>Vi<i>deos</i></h1><p class="sub">AI spokesperson videos — a talking-head avatar delivers your script. Great for ads, landing pages and social. ${quotaLine}</p>
   <div class="card"><b>New spokesperson video</b><div style="display:grid;gap:8px;margin-top:10px"><input id="vidTitle" placeholder="Title (optional)" maxlength="120"><textarea id="vidScript" placeholder="Exactly what the avatar should say (keep it under ~300 words)..." maxlength="2000" style="min-height:90px"></textarea><div class="row"><select id="vidFormat" style="background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px;color:var(--txt)"><option value="landscape">Landscape — YouTube / site</option><option value="portrait">Portrait — TikTok / Reels / Shorts</option><option value="square">Square — Instagram</option></select><button class="btn lime" onclick="vidCreate()">Generate video</button></div></div></div>
   <div id="vidbody">${list}</div></div>`;
@@ -310,14 +313,17 @@ async function vidCheck(id){const r=await api('/api/videos/'+id);if(r.ok)vidLoad
 
 /* ---------- studio ---------- */
 let STUDIO=[],STUDIOERR='',STUDIOQUOTA=null,STUDIOUNLIMITED=false;
-async function studioLoad(){try{const r=await api('/api/studio/jobs');if(r.ok){STUDIO=r.data.jobs||[];STUDIOQUOTA=r.data.quota||null;STUDIOUNLIMITED=!!r.data.unlimited;STUDIOERR=''}else{STUDIO='err';STUDIOERR=r.data&&r.data.error||'Could not load.'}}catch(e){STUDIO='err';STUDIOERR='Could not load.'}if(view=='studio')render()}
-function vStudio(){
-  const quotaLine=STUDIOUNLIMITED?'<span class="pill" style="border-color:var(--lime);color:var(--lime)">Unlimited</span>':STUDIOQUOTA?`<span class="pill">${STUDIOQUOTA.used}/${STUDIOQUOTA.limit} this month</span>`:'';
-  const jobs=STUDIO===null?'<div class="card">Loading...</div>':STUDIO==='err'?`<div class="card"><b>Couldn't load</b><p style="color:var(--stone)">${esc(STUDIOERR)}</p><div class="row" style="margin-top:10px"><button class="btn lime" onclick="STUDIO=null;STUDIOERR='';render();studioLoad()">Try again</button></div></div>`
+async function studioLoad(){try{const r=await api('/api/studio/jobs');if(r.ok){STUDIO=r.data.jobs||[];STUDIOQUOTA=r.data.quota||null;STUDIOUNLIMITED=!!r.data.unlimited;STUDIOERR=''}else{STUDIO='err';STUDIOERR=r.data&&r.data.error||'Could not load.'}}catch(e){STUDIO='err';STUDIOERR='Could not load.'}const b=document.getElementById('studiobody');if(b&&view=='studio')b.innerHTML=studioListHtml()}
+function studioListHtml(){
+  return STUDIO===null?'<div class="card">Loading...</div>':STUDIO==='err'?`<div class="card"><b>Couldn't load</b><p style="color:var(--stone)">${esc(STUDIOERR)}</p><div class="row" style="margin-top:10px"><button class="btn lime" onclick="STUDIO=null;STUDIOERR='';render();studioLoad()">Try again</button></div></div>`
   :STUDIO.length?STUDIO.map(j=>{const preview=j.kind=='image'?`<img src="${esc(j.resultUrl)}" style="max-width:100%;border-radius:10px;margin-top:8px" loading="lazy">`:j.kind=='tts'?`<audio controls src="${esc(j.resultUrl)}" style="width:100%;margin-top:8px"></audio>`:`<img src="${esc(j.resultUrl)}" style="max-width:100%;border-radius:10px;margin-top:8px" loading="lazy">`;
     const label=j.kind=='image'?'Image':j.kind=='tts'?'Voiceover':'BG removed';
     return `<div class="card"><div class="row" style="justify-content:space-between"><div><b>${label}</b> <span class="pill">${new Date(j.createdAt).toLocaleDateString()}</span></div><button class="btn ghost" onclick="window.open('${esc(j.resultUrl)}','_blank')">Open</button></div><p class="sub">${esc((j.prompt||'').slice(0,140))}</p>${preview}</div>`}).join('')
   :'<div class="card"><p style="color:var(--stone)">Nothing created yet. Generate an image, a voiceover, or remove a background below.</p></div>';
+}
+function vStudio(){
+  const quotaLine=STUDIOUNLIMITED?'<span class="pill" style="border-color:var(--lime);color:var(--lime)">Unlimited</span>':STUDIOQUOTA?`<span class="pill">${STUDIOQUOTA.used}/${STUDIOQUOTA.limit} this month</span>`:'';
+  const jobs=studioListHtml();
   return `<div class="fade"><h1>Stu<i>dio</i></h1><p class="sub">AI creative tools — images, voiceovers and background removal for your ads and funnels. ${quotaLine}</p>
   <div class="card"><b>Generate an image</b><p class="sub">Ad creatives, funnel heroes, social posts.</p><div style="display:grid;gap:8px;margin-top:10px"><textarea id="stImgPrompt" placeholder="Describe the image — e.g. 'bold product shot of a black gaming headset on neon background'..." maxlength="1000" style="min-height:70px"></textarea><div class="row"><button class="btn lime" onclick="studioImage()">Generate image</button></div></div></div>
   <div class="card"><b>Voiceover</b><p class="sub">Turn text into spoken audio for ads and videos.</p><div style="display:grid;gap:8px;margin-top:10px"><textarea id="stTtsText" placeholder="Paste the script for the voiceover..." maxlength="4000" style="min-height:70px"></textarea><div class="row"><select id="stTtsVoice" style="background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px;color:var(--txt)"><option value="alloy">Alloy — neutral</option><option value="nova">Nova — warm female</option><option value="onyx">Onyx — deep male</option><option value="echo">Echo — clear male</option><option value="fable">Fable — storytelling</option><option value="shimmer">Shimmer — bright female</option></select><button class="btn lime" onclick="studioTts()">Generate voiceover</button></div></div></div>
@@ -330,9 +336,12 @@ async function studioBg(){const u=document.getElementById('stBgUrl');if(!u.value
 
 /* ---------- affiliates ---------- */
 let AFF=null,AFFERR='';
-async function affLoad(){try{const r=await api('/api/affiliates/me');AFF=r.ok?r.data:'err';AFFERR=r.ok?'':(r.data&&r.data.error||'Could not load.')}catch(e){AFF='err';AFFERR='Could not load.'}if(view=='aff')render()}
+async function affLoad(){try{const r=await api('/api/affiliates/me');AFF=r.ok?r.data:'err';AFFERR=r.ok?'':(r.data&&r.data.error||'Could not load.')}catch(e){AFF='err';AFFERR='Could not load.'}const b=document.getElementById('affbody');if(b&&view=='aff')b.innerHTML=affBodyHtml()}
+function affBodyHtml(){
+  return AFF===null?'<div class="card">Loading...</div>':AFF==='err'?`<div class="card"><b>Couldn't load affiliates</b><p style="color:var(--stone)">${esc(AFFERR)}</p><div class="row" style="margin-top:10px"><button class="btn lime" onclick="AFF=null;AFFERR='';render();affLoad()">Try again</button></div></div>`:(AFF.affiliate?affDash(AFF):affJoin());
+}
 function vAff(){
-  const body=AFF===null?'<div class="card">Loading...</div>':AFF==='err'?`<div class="card"><b>Couldn't load affiliates</b><p style="color:var(--stone)">${esc(AFFERR)}</p><div class="row" style="margin-top:10px"><button class="btn lime" onclick="AFF=null;AFFERR='';render();affLoad()">Try again</button></div></div>`:(AFF.affiliate?affDash(AFF):affJoin());
+  const body=affBodyHtml();
   return `<div class="fade"><h1>Affi<i>liates</i></h1><p class="sub">Share your link. Start at 15% and climb to 50% as you refer more — paid out monthly once you hit $50.</p>
   <div id="affbody">${body}</div></div>`;
 }
@@ -365,13 +374,15 @@ async function sendIdea(){const t=document.getElementById('ideaTitle'),b=documen
 
 /* ---------- billing ---------- */
 let BILL=null;
-async function billLoad(){const r=await api('/api/billing/status');BILL=r.ok?r.data:null;if(view=='bill')render()}
-function vBill(){const b=BILL;
-  return `<div class="fade"><h1>Bil<i>ling</i></h1><p class="sub">Your subscription unlocks the assistant, funnels and leads.</p>
-  ${b?`<div class="card"><div class="row" style="justify-content:space-between"><div><b style="font-size:20px">${esc(b.status)}</b><div style="color:var(--stone)">${b.isAdmin?'Owner account — full access, never billed.':b.active?'Your plan is active.':'No active subscription yet.'}</div></div><span class="pill"><span class="dot ${b.active?'':'off'}"></span>${b.active?'Active':'Inactive'}</span></div>
+async function billLoad(){const r=await api('/api/billing/status');BILL=r.ok?r.data:null;const b=document.getElementById('billbody');if(b&&view=='bill')b.innerHTML=billBodyHtml()}
+function billBodyHtml(){const b=BILL;
+  return b?`<div class="card"><div class="row" style="justify-content:space-between"><div><b style="font-size:20px">${esc(b.status)}</b><div style="color:var(--stone)">${b.isAdmin?'Owner account — full access, never billed.':b.active?'Your plan is active.':'No active subscription yet.'}</div></div><span class="pill"><span class="dot ${b.active?'':'off'}"></span>${b.active?'Active':'Inactive'}</span></div>
   <div class="row" style="margin-top:14px"><button class="btn lime" onclick="buyLifetime()">Lifetime access — $1,999</button><button class="btn" onclick="buyPartner()">Partner — $4,999/yr</button>${b.status!='none'&&!b.isAdmin?'<button class="btn ghost" onclick="portal()">Manage billing</button>':''}</div></div>
   ${!b.active&&!b.isAdmin?`<div class="card"><b>Subscribe monthly</b><p style="color:var(--stone)">7-day free trial, then monthly. Cancel any time.</p><div class="row" style="margin-top:10px">${['basic','pro','proplus'].map(p=>`<button class="btn ghost" onclick="checkout('${p}')">${p[0].toUpperCase()+p.slice(1)}</button>`).join('')}</div></div>`:''}`
-  :'<div class="card">Loading...</div>'}</div>`;
+  :'<div class="card">Loading...</div>';
+}
+function vBill(){
+  return `<div class="fade"><h1>Bil<i>ling</i></h1><p class="sub">Your subscription unlocks the assistant, funnels and leads.</p><div id="billbody">${billBodyHtml()}</div></div>`;
 }
 async function buyLifetime(){const r=await api('/api/billing/lifetime',{});if(r.ok&&r.data.url)location.href=r.data.url;else toast(r.data.error||'Lifetime checkout is not set up yet.')}
 async function checkout(p){const r=await api('/api/billing/checkout',{plan:p});if(r.ok&&r.data.url)location.href=r.data.url;else toast(r.data.error||'Checkout failed.')}
