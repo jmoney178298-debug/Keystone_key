@@ -175,7 +175,7 @@ async function runAgent(){
             if(e.type=='step'){if(cur)cur.querySelector('span:first-child').textContent='✅';cur=addStep(e.text,'work')}
             else if(e.type=='tool'){cur=addStep(e.text,'work')}
             else if(e.type=='tool_done'){if(cur)cur.querySelector('span:first-child').textContent='✅'}
-            else if(e.type=='done'){if(cur)cur.querySelector('span:first-child').textContent='✅';lastAgentGoal=goal;doneEl.innerHTML=`<div class="card" style="border-color:var(--lime);margin-top:12px"><b>Done</b><p style="white-space:pre-wrap">${esc(e.text)}</p><button class="btn ghost" onclick="copyPaxHandoff()">Copy handoff for Pax</button></div>`}
+            else if(e.type=='done'){if(cur)cur.querySelector('span:first-child').textContent='✅';lastAgentGoal=goal;doneEl.innerHTML=`<div class="card" style="border-color:var(--lime);margin-top:12px"><b>Done</b><p style="white-space:pre-wrap">${esc(e.text)}</p>${isAdmin?'<button class="btn ghost" onclick="copyPaxHandoff()">Copy handoff for Pax</button>':''}</div>`}
             else if(e.type=='error'){toast(e.text)}
           }catch{}
         }
