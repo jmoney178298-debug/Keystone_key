@@ -33,7 +33,7 @@ const requireUser: MiddlewareHandler<Env> = async (c, next) => {
   if (!session?.user) return c.json({ error: "Sign in required" }, 401);
   const email = session.user.email.toLowerCase();
   c.set("user", { id: session.user.id, email });
-  c.set("isAdmin", OWNER_EMAIL !== "" && email === OWNER_EMAIL);
+  c.set("isAdmin", OWNER_EMAIL !== "" && email === OWNER_EMAIL.toLowerCase());
   await next();
 };
 
