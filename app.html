@@ -83,11 +83,11 @@ let artifact=null; // {name, code}
 let limits={plan:'basic',limit:20,used:0};
 const dshort=t=>{try{return new Date(t).toLocaleDateString(undefined,{month:'short',day:'numeric'})}catch(e){return''}};
 
-const NAV=[['assist','Assistant'],['funnels','Funnels & Leads'],['videos','Videos'],['studio','Studio'],['aff','Affiliates'],['bill','Billing']];
+const NAV=[['assist','Assistant'],['funnels','Funnels & Leads'],['videos','Videos'],['studio','Studio'],['aff','Affiliates']];
 function renderSide(){
   $('#side').innerHTML='<div class="logo">AI<i>U</i></div>'+
     NAV.concat(isAdmin?[['admin','Admin']]:[]).map(n=>`<button class="nav ${n[0]==view?'on':''}" onclick="setView('${n[0]}')">${n[1]}${n[0]=='funnels'&&newLeadCount()>0?` <span class="pill" style="border-color:var(--lime);color:var(--lime)">${newLeadCount()} new</span>`:''}</button>`).join('')+
-    `<div class="foot"><span class="pill">${limits.limit<0?'AI: unlimited':`AI: ${limits.used}/${limits.limit} today`}</span><button class="nav" id="pwaBtn" style="display:none;border:1px solid var(--lime);color:var(--lime)" onclick="pwaInstall()">Install app</button><button class="nav" onclick="out()">Sign out</button></div>`;
+    `<div class="foot"><span class="pill">${limits.limit<0?'AI: unlimited':`AI: ${limits.used}/${limits.limit} today`}</span><button class="nav" id="pwaBtn" style="display:none;border:1px solid var(--lime);color:var(--lime)" onclick="pwaInstall()">Install app</button><button class="nav" onclick="setView('bill')">Billing</button><button class="nav" onclick="out()">Sign out</button></div>`;
   showPwaBtn();
 }
 function setView(v){view=v;artifactTab='preview';if(v=='assist'){loadConvos()}render()}
@@ -450,9 +450,9 @@ function render(){
 
 /* ---------- Upgrade modal (fires on 402 or daily-limit hit) ---------- */
 const PLANS=[
-  {id:'basic',name:'Basic',price:'$9/mo',ai:'20 AI requests/day',lead:'10 leads/day'},
-  {id:'pro',name:'Pro',price:'$29/mo',ai:'100 AI requests/day',lead:'50 leads/day'},
-  {id:'proplus',name:'Pro+',price:'$59/mo',ai:'300 AI requests/day',lead:'200 leads/day'},
+  {id:'basic',name:'Basic',price:'$25/mo',ai:'20 AI requests/day',lead:'10 leads/day'},
+  {id:'pro',name:'Pro',price:'$50/mo',ai:'100 AI requests/day',lead:'50 leads/day'},
+  {id:'proplus',name:'Pro+',price:'$75/mo',ai:'300 AI requests/day',lead:'200 leads/day'},
   {id:'lifetime',name:'Lifetime',price:'$1,999 once',ai:'300 AI requests/day, forever',lead:'200 leads/day'},
 ];
 function showUpgrade(plan,reason){
