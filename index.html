@@ -362,7 +362,7 @@ const $=s=>document.querySelector(s);
 const PLANS=[['basic','AIU Basic',25,'Full AI assistant that learns you · 20 AI requests/day'],['pro','AIU Pro',50,'Everything in Basic · 100 AI requests/day · Priority support'],['proplus','AIU Pro+',75,'Everything in Pro · 300 AI requests/day · 1:1 setup call']];
 $('#grid').innerHTML=PLANS.map(p=>`<div class="price-card"><h3>${p[1]}</h3><div class="amt">$${p[2]} <span>/mo</span></div><div class="per">7-day free trial · cancel anytime</div><ul class="feat"><li>${p[3].split(' · ').map(s=>s).join('</li><li>')}</li></ul><button class="btn btn-acc" style="width:100%" onclick="pick('${p[0]}')">Start free trial</button></div>`).join('');
 let signup=false;
-function show(id){document.querySelectorAll('.sec-view').forEach(e=>e.classList.toggle('on',e.id==id));if(id=='account')acct();if(id)scrollTo(0,0)}
+function show(id){document.querySelectorAll('.sec-view').forEach(e=>e.classList.toggle('on',e.id==id));if(id=='account')acct();if(id){const el=document.getElementById(id);if(el)el.scrollIntoView({behavior:'smooth',block:'start'})}}
 function toggleLegal(id){const d=document.getElementById(id);if(d){d.open=!d.open;d.scrollIntoView({behavior:'smooth',block:'center'})}}
 function route(){const h=location.hash.slice(1);if(['login','account'].includes(h))show(h)}addEventListener('hashchange',route);route();
 async function api(path,body){const r=await fetch(path,{method:body?'POST':'GET',headers:{'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined});return{ok:r.ok,status:r.status,data:await r.json().catch(()=>({}))}}
