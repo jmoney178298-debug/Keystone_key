@@ -235,3 +235,27 @@ export const mediaJobs = sqliteTable("media_jobs", {
   error: text("error"),
   createdAt: createdAt(),
 });
+
+/** Content clipper jobs: upload → transcribe → highlights → clips. */
+export const contentJobs = sqliteTable("content_jobs", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  userId: text("user_id").notNull(),
+  title: text("title").notNull(),
+  sourceFile: text("source_file").notNull(),
+  isVideo: integer("is_video").notNull().default(0),
+  durationSec: integer("duration_sec").notNull().default(0),
+  transcript: text("transcript"),
+  highlights: text("highlights"), // JSON array of {start, end, title, summary, topics}
+  clips: text("clips"), // JSON array of {title, file, start, end}
+  status: text("status").notNull().default("uploaded"), // uploaded | transcribing | analyzing | clipping | done | failed
+  error: text("error"),
+  createdAt: createdAt(),
+});
+
+/** Per-user settings: assistant name, preferences. */
+export const userSettings = sqliteTable("user_settings", {
+  userId: text("user_id").notNull(),
+  key: text("key").notNull(),
+  value: text("value").notNull(),
+  createdAt: createdAt(),
+}, (t) => [primaryKey({ columns: [t.userId, t.key] })]);

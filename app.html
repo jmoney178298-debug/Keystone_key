@@ -64,10 +64,12 @@ pre{white-space:pre-wrap;background:#0a141a;border:1px solid var(--line);border-
 a{color:var(--volt2)}
 .fade>*{animation:up .4s both}
 @keyframes up{from{opacity:0;transform:translateY(10px)}}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
 @media(prefers-reduced-motion:reduce){.fade>*{animation:none}}
 @media(max-width:800px){body{flex-direction:column}.side{width:100%;flex-direction:row;overflow-x:auto;padding:10px;align-items:center}.logo{padding:0 10px;font-size:24px}.nav{white-space:nowrap;padding:8px 12px}.side .foot .pill,.side .foot #pwaBtn{display:none}.side .foot{display:flex;flex-direction:row;padding:0}main{padding:16px}.composer{position:static}}
 </style></head><body>
 <nav class="side" id="side"></nav><main id="main"></main>
+<div id="presence" style="position:fixed;top:12px;left:50%;transform:translateX(-50%);z-index:100;display:none;align-items:center;gap:10px;background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:8px 18px 8px 8px;box-shadow:0 4px 24px rgba(0,0,0,.4)"><div id="presenceAvatar" style="width:36px;height:36px;border-radius:50%;background:var(--lime);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:18px">A</div><div><div id="presenceName" style="font-weight:700;font-size:14px">Assistant</div><div id="presenceStatus" style="font-size:12px;color:var(--stone)">Ready</div></div><div id="presenceDot" style="width:10px;height:10px;border-radius:50%;background:#22c55e"></div></div>
 <script>
 const $=s=>document.querySelector(s);
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -113,11 +115,11 @@ function fmtBody(t){
 }
 function welcomeHtml(){
   if(convos.length) return '<div class="msg sys">Say hello — try one of the suggestions above.</div>';
-  return `<div class="msg ai"><b>Hey — I'm your AIU assistant, your right hand in here.</b><br><br>Tell me what you want in plain words and I'll get it done: a <b>lead funnel</b> that captures customers, a <b>website or app</b> for your business — or ask me anything about your plan, leads, and referrals.<br><br>Flip on <b>Agent mode</b> above if you want to watch me work through something step by step. Tap a suggestion to see what I can do.</div>`;
+  return `<div class="msg ai"><b>Hey — I'm ${esc(ASSISTANT_NAME)}, your right hand in here.</b><br><br>Tell me what you want in plain words and I'll get it done: a <b>lead funnel</b> that captures customers, a <b>website or app</b> for your business — or ask me anything about your plan, leads, and referrals.<br><br>Flip on <b>Agent mode</b> above if you want to watch me work through something step by step. Tap a suggestion to see what I can do.</div>`;
 }
 function vAssist(){
-  return `<div class="fade"><h1>Your AI <i>assistant</i></h1>
-  <p class="sub">Chat, build funnels that generate leads, create websites and apps, manage leads — all in one place. Ask for anything.</p>
+  return `<div class="fade"><h1>${esc(ASSISTANT_NAME)}</h1>
+  <p class="sub">Your personal AI — chat, build funnels that generate leads, create websites and apps, manage leads. <a href="javascript:void(0)" onclick="renameAssistant()" style="color:var(--lime)">Rename</a></p>
   <div class="row" style="margin-bottom:12px">
     <button class="btn ${assistMode=='chat'?'lime':'ghost'}" onclick="setAssistMode('chat')">Chat</button>
     <button class="btn ${assistMode=='agent'?'lime':'ghost'}" onclick="setAssistMode('agent')">Agent mode</button>
@@ -145,14 +147,19 @@ let assistMode='chat';
 function setAssistMode(m){assistMode=m;render()}
 /* ---------- Agent mode: watch the AI work step by step ---------- */
 let agentRunning=false;
+let agentAbort=null;
+function stopAgent(){if(agentAbort){agentAbort.abort();agentAbort=null}agentRunning=false;const g=document.getElementById('agentGo');if(g){g.textContent='Run';g.onclick=runAgent;g.classList.add('lime');g.classList.remove('danger')}setPresenceStatus('Ready',false);toast('You took over — agent stopped.')}
 async function runAgent(){
   if(agentRunning)return;
   const goal=(document.getElementById('agentIn')?.value||'').trim();
   if(!goal){toast('Tell the agent what to get done.');return}
   agentRunning=true;
+  agentAbort=new AbortController();
   const stepsEl=document.getElementById('agentSteps'),doneEl=document.getElementById('agentDone');
   stepsEl.innerHTML='';doneEl.innerHTML='';
-  document.getElementById('agentGo').textContent='Working…';
+  const goBtn=document.getElementById('agentGo');
+  goBtn.textContent='Take over ⏹';goBtn.onclick=stopAgent;goBtn.classList.remove('lime');goBtn.classList.add('danger');
+  setPresenceStatus('Working on: '+goal.slice(0,40),true);
   const addStep=(text,state)=>{
     const d=document.createElement('div');
     d.className='card';d.style.cssText='padding:10px 14px;display:flex;gap:10px;align-items:center';
@@ -161,7 +168,7 @@ async function runAgent(){
   };
   let cur=null;
   try{
-    const r=await fetch('/api/assistant/agent',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({goal})});
+    const r=await fetch('/api/assistant/agent',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({goal}),signal:agentAbort.signal});
     if(r.status===429){const j=await r.json().catch(()=>({}));showUpgrade(j);throw new Error(j.error||'Daily AI limit reached.')}
     if(!r.ok)throw new Error('Agent request failed.');
     const rd=r.body.getReader(),dec=new TextDecoder();let buf='';
@@ -184,7 +191,7 @@ async function runAgent(){
     while(true){const {done,value}=await rd.read();if(done)break;buf+=dec.decode(value,{stream:true});flush()}
     flush();
   }catch(err){if(err.message!=='Agent request failed.'&&!String(err.message).includes('Daily'))toast(err.message||'Agent failed.')}
-  agentRunning=false;const g=document.getElementById('agentGo');if(g)g.textContent='Run';
+  agentRunning=false;agentAbort=null;const g=document.getElementById('agentGo');if(g){g.textContent='Run';g.onclick=runAgent;g.classList.add('lime');g.classList.remove('danger')}setPresenceStatus('Ready',false);
 }
 function copyPaxHandoff(){
   const steps=[...document.querySelectorAll('#agentSteps .card span:last-child')].map(s=>s.textContent.trim());
@@ -210,10 +217,11 @@ async function sendChat(prefill){
   const inp=$('#cin'); const text=(prefill||(inp?inp.value:'')).trim(); if(!text) return;
   if(inp) inp.value='';
   msgs.push({role:'user',content:text}); render();
+  setPresenceStatus('Thinking…',true);
   const log=$('#chatlog'); log.insertAdjacentHTML('beforeend','<div class="msg ai" id="thinking">Thinking…</div>'); log.scrollTop=log.scrollHeight;
   $('#csend').disabled=true;
   const r=await api('/api/assistant/chat',{message:text,conversationId:chatId,artifact});
-  $('#thinking')?.remove(); $('#csend').disabled=false;
+  $('#thinking')?.remove(); $('#csend').disabled=false; setPresenceStatus('Ready',false);
   if(r.status==402){msgs.push({role:'assistant',content:'Your subscription is not active.'});showUpgrade(null,'inactive');}
   else if(r.status==429&&r.data.limitHit){msgs.push({role:'assistant',content:r.data.error||'Daily limit reached.'});showUpgrade(r.data.plan,r.data.limit);}
   else if(!r.ok){msgs.push({role:'assistant',content:r.data.error||'Something went wrong. Try again.'});}
@@ -324,14 +332,18 @@ function studioListHtml(){
 function vStudio(){
   const quotaLine=STUDIOUNLIMITED?'<span class="pill" style="border-color:var(--lime);color:var(--lime)">Unlimited</span>':STUDIOQUOTA?`<span class="pill">${STUDIOQUOTA.used}/${STUDIOQUOTA.limit} this month</span>`:'';
   const jobs=studioListHtml();
-  return `<div class="fade"><h1>Stu<i>dio</i></h1><p class="sub">AI creative tools — images, voiceovers and background removal for your ads and funnels. ${quotaLine}</p>
-  <div class="card"><b>Generate an image</b><p class="sub">Ad creatives, funnel heroes, social posts.</p><div style="display:grid;gap:8px;margin-top:10px"><textarea id="stImgPrompt" placeholder="Describe the image — e.g. 'bold product shot of a black gaming headset on neon background'..." maxlength="1000" style="min-height:70px"></textarea><div class="row"><button class="btn lime" onclick="studioImage()">Generate image</button></div></div></div>
-  <div class="card"><b>Voiceover</b><p class="sub">Turn text into spoken audio for ads and videos.</p><div style="display:grid;gap:8px;margin-top:10px"><textarea id="stTtsText" placeholder="Paste the script for the voiceover..." maxlength="4000" style="min-height:70px"></textarea><div class="row"><select id="stTtsVoice" style="background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px;color:var(--txt)"><option value="alloy">Alloy — neutral</option><option value="nova">Nova — warm female</option><option value="onyx">Onyx — deep male</option><option value="echo">Echo — clear male</option><option value="fable">Fable — storytelling</option><option value="shimmer">Shimmer — bright female</option></select><button class="btn lime" onclick="studioTts()">Generate voiceover</button></div></div></div>
+  return `<div class="fade"><h1>Stu<i>dio</i></h1><p class="sub">AI creative tools — images, voiceovers, background removal and content clipping for your ads and funnels. ${quotaLine}</p>
+  <div class="card"><b>Generate an image</b><p class="sub">Ad creatives, funnel heroes, social posts.</p><div style="display:grid;gap:8px;margin-top:10px"><textarea id="stImgPrompt" placeholder="Describe the image — e.g. 'bold product shot of a black gaming headset on neon background'..." maxlength="1000" style="min-height:70px"></textarea><div class="row" style="flex-wrap:wrap;gap:8px"><select id="stImgStyle" style="background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px;color:var(--txt)"><option value="">No style</option><option value="photorealistic">Photorealistic</option><option value="cinematic">Cinematic</option><option value="cartoon">Cartoon</option><option value="anime">Anime</option><option value="oilpainting">Oil painting</option><option value="watercolor">Watercolor</option><option value="cyberpunk">Cyberpunk</option><option value="minimal">Minimal</option><option value="threed">3D render</option><option value="comic">Comic book</option></select><select id="stImgSize" style="background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px;color:var(--txt)"><option value="1024x1024">Square</option><option value="1792x1024">Landscape</option><option value="1024x1792">Portrait</option></select><select id="stImgQuality" style="background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px;color:var(--txt)"><option value="standard">Standard</option><option value="hd">HD</option></select><button class="btn lime" onclick="studioImage()">Generate image</button></div></div></div>
+  <div class="card"><b>Voiceover</b><p class="sub">Turn text into spoken audio for ads and videos.</p><div style="display:grid;gap:8px;margin-top:10px"><textarea id="stTtsText" placeholder="Paste the script for the voiceover..." maxlength="4000" style="min-height:70px"></textarea><div class="row" style="flex-wrap:wrap;gap:8px"><select id="stTtsVoice" style="background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px;color:var(--txt)"><option value="alloy">Alloy — neutral</option><option value="nova">Nova — warm female</option><option value="onyx">Onyx — deep male</option><option value="echo">Echo — clear male</option><option value="fable">Fable — storytelling</option><option value="shimmer">Shimmer — bright female</option></select><select id="stTtsSpeed" style="background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px;color:var(--txt)"><option value="1">Normal speed</option><option value="0.75">Slower</option><option value="1.25">Faster</option><option value="1.5">Much faster</option></select><button class="btn lime" onclick="studioTts()">Generate voiceover</button></div></div></div>
   <div class="card"><b>Remove background</b><p class="sub">Product photos and headshots, transparent PNG in seconds.</p><div style="display:grid;gap:8px;margin-top:10px"><input id="stBgUrl" placeholder="Paste an image URL..." style="background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px;color:var(--txt)"><div class="row"><button class="btn lime" onclick="studioBg()">Remove background</button></div></div></div>
+  <div class="card" style="border-color:var(--lime)"><b>✂️ Content Clipper</b><p class="sub">Upload a long video or podcast — AI finds the best moments and cuts them into shareable clips or episode segments.</p><div style="display:grid;gap:8px;margin-top:10px"><input type="file" id="clipFile" accept="video/*,audio/*" style="background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px;color:var(--txt)"><input id="clipTitle" placeholder="Title (optional)..." maxlength="120" style="background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px;color:var(--txt)"><div class="row" style="flex-wrap:wrap;gap:8px"><select id="clipMode" style="background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px;color:var(--txt)"><option value="highlights">Highlight clips</option><option value="episodes">Episode segments</option></select><select id="clipCount" style="background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px;color:var(--txt)"><option value="3">3 clips</option><option value="5" selected>5 clips</option><option value="8">8 clips</option><option value="12">12 clips</option></select><select id="clipLength" style="background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px;color:var(--txt)"><option value="short">Short (30-60s)</option><option value="medium" selected>Medium (2-5 min)</option><option value="long">Long (5-15 min)</option></select><button class="btn lime" onclick="clipUpload()">Upload &amp; clip</button></div><div id="clipJobs" style="margin-top:8px"></div></div></div>
   <div id="studiobody">${jobs}</div></div>`;
 }
-async function studioImage(){const p=document.getElementById('stImgPrompt');if(!p.value.trim()){toast('Describe the image first.');return}toast('Generating image...');const r=await api('/api/studio/image',{prompt:p.value});if(r.ok){p.value='';studioLoad()}else toast(r.data.error||'Image generation failed.')}
-async function studioTts(){const t=document.getElementById('stTtsText'),v=document.getElementById('stTtsVoice');if(!t.value.trim()){toast('Enter the text first.');return}toast('Generating voiceover...');const r=await api('/api/studio/tts',{text:t.value,voice:v.value});if(r.ok){t.value='';studioLoad()}else toast(r.data.error||'Voiceover failed.')}
+async function studioImage(){const p=document.getElementById('stImgPrompt');if(!p.value.trim()){toast('Describe the image first.');return}toast('Generating image...');const r=await api('/api/studio/image',{prompt:p.value,style:document.getElementById('stImgStyle').value,size:document.getElementById('stImgSize').value,quality:document.getElementById('stImgQuality').value});if(r.ok){p.value='';studioLoad()}else toast(r.data.error||'Image generation failed.')}
+async function studioTts(){const t=document.getElementById('stTtsText'),v=document.getElementById('stTtsVoice');if(!t.value.trim()){toast('Enter the text first.');return}toast('Generating voiceover...');const r=await api('/api/studio/tts',{text:t.value,voice:v.value,speed:parseFloat(document.getElementById('stTtsSpeed').value)||1});if(r.ok){t.value='';studioLoad()}else toast(r.data.error||'Voiceover failed.')}
+let CLIPJOBS=[];
+async function clipUpload(){const f=document.getElementById('clipFile').files[0];if(!f){toast('Choose a video or audio file first.');return}if(f.size>500*1024*1024){toast('File is too large. Maximum 500MB.');return}toast('Uploading...');const fd=new FormData();fd.append('file',f);fd.append('title',document.getElementById('clipTitle').value||f.name);const up=await fetch('/api/content/upload',{method:'POST',body:fd,credentials:'include'});const uj=await up.json().catch(()=>({}));if(!up.ok){toast(uj.error||'Upload failed.');return}toast('Analyzing — finding the best moments. This takes a few minutes.');const an=await api('/api/content/analyze/'+uj.id,{mode:document.getElementById('clipMode').value,clipCount:parseInt(document.getElementById('clipCount').value),clipLength:document.getElementById('clipLength').value});if(!an.ok){toast(an.data.error||'Analysis failed.');return}document.getElementById('clipFile').value='';document.getElementById('clipTitle').value='';clipLoad();const iv=setInterval(async()=>{await clipLoad();const j=CLIPJOBS.find(x=>x.id===uj.id);if(!j||['done','failed'].includes(j.status)){clearInterval(iv);if(j&&j.status==='done')toast('Clips are ready!');}},8000)}
+async function clipLoad(){try{const r=await api('/api/content/jobs');if(r.ok){CLIPJOBS=r.data||[];const d=document.getElementById('clipJobs');if(d)d.innerHTML=CLIPJOBS.slice(0,10).map(j=>{const st={uploaded:'Uploaded',transcribing:'Transcribing audio...',analyzing:'Finding highlights...',clipping:'Cutting clips...',done:'Done',failed:'Failed'}[j.status]||j.status;const clips=(j.clips||[]).map(c=>{const mm=String(Math.floor((c.end-c.start)/60)).padStart(1,'0'),ss=String(Math.floor((c.end-c.start)%60)).padStart(2,'0');return `<div class="row" style="padding:8px 0;border-top:1px solid var(--line);justify-content:space-between;align-items:center"><div><b style="font-size:14px">${esc(c.title)}</b><div class="mono" style="font-size:12px;color:var(--stone)">${mm}:${ss}</div></div>${j.isVideo?`<video src="${c.url}" controls style="max-width:180px;border-radius:8px"></video>`:`<audio src="${c.url}" controls style="max-width:180px"></audio>`}<a class="btn ghost" style="padding:6px 14px;font-size:13px" href="${c.url}" download>Download</a></div>`}).join('');const hls=(j.highlights||[]).map(h=>`<span class="pill" style="margin:2px" title="${esc(h.summary)}">${esc(h.title)}</span>`).join('');return `<div style="border:1px solid var(--line);border-radius:12px;padding:12px;margin-top:8px"><div class="row" style="justify-content:space-between"><b>${esc(j.title)}</b><span class="pill">${st}</span></div>${j.status==='failed'?`<p style="color:var(--danger);font-size:13px">${esc(j.error||'Failed')}</p>`:''}${hls?`<div style="margin-top:6px">${hls}</div>`:''}${clips}</div>`}).join('')||'<p style="color:var(--stone);font-size:13px">No clips yet.</p>'}}catch(e){}}
 async function studioBg(){const u=document.getElementById('stBgUrl');if(!u.value.trim()){toast('Paste an image URL first.');return}toast('Removing background...');const r=await api('/api/studio/bgremove',{imageUrl:u.value});if(r.ok){u.value='';studioLoad()}else toast(r.data.error||'Background removal failed.')}
 
 /* ---------- affiliates ---------- */
@@ -435,7 +447,7 @@ function render(){
   if(view=='assist'){renderArtifact();const l=$('#chatlog');if(l)l.scrollTop=l.scrollHeight}
   if(view=='funnels')funLoad();
   if(view=='videos')vidLoad();
-  if(view=='studio')studioLoad();
+  if(view=='studio'){studioLoad();clipLoad();}
   if(view=='aff')affLoad();
   if(view=='bill')billLoad();
   if(view=='admin')admLoad();
@@ -444,10 +456,33 @@ function render(){
   const b=await api('/api/billing/status');
   if(b.ok&&b.data){isAdmin=!!b.data.isAdmin;planLabel=b.data.status;signedIn=true}
   const lim=await api('/api/assistant/limits'); if(lim.ok)limits=lim.data;
+  await loadAssistantName();
   render(); loadConvos(); restoreChatState();
   const q=new URLSearchParams(location.search).get('billing');
   if(q=='success'||q=='cancelled'){setTimeout(()=>toast(q=='success'?'Payment successful — welcome!':'Checkout was cancelled. No charge was made.'),600);history.replaceState(null,'',location.pathname)}
 })();
+
+/* ---------- Assistant naming + presence ---------- */
+let ASSISTANT_NAME='Assistant';
+async function loadAssistantName(){try{const r=await api('/api/settings');if(r.ok&&r.data.assistantName){ASSISTANT_NAME=r.data.assistantName;updatePresence()}}catch(e){}}
+function updatePresence(){
+  const p=document.getElementById('presence');if(!p)return;
+  p.style.display=signedIn?'flex':'none';
+  document.getElementById('presenceName').textContent=ASSISTANT_NAME;
+  document.getElementById('presenceAvatar').textContent=(ASSISTANT_NAME[0]||'A').toUpperCase();
+}
+function setPresenceStatus(text,working){
+  const s=document.getElementById('presenceStatus'),d=document.getElementById('presenceDot');
+  if(s)s.textContent=text;
+  if(d){d.style.background=working?'#ff4f33':'#22c55e';d.style.animation=working?'pulse 1s infinite':''}
+}
+async function renameAssistant(){
+  const n=prompt('Name your personal assistant:',ASSISTANT_NAME);
+  if(!n||!n.trim())return;
+  const r=await api('/api/settings',{assistantName:n.trim()});
+  if(r.ok){ASSISTANT_NAME=r.data.assistantName;updatePresence();render();toast('Your assistant is now called '+ASSISTANT_NAME)}
+  else toast(r.data.error||'Could not save the name.')
+}
 
 /* ---------- Upgrade modal (fires on 402 or daily-limit hit) ---------- */
 const PLANS=[

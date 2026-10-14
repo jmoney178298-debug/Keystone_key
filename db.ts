@@ -36,6 +36,7 @@ CREATE TABLE IF NOT EXISTS blg_posts (id integer PRIMARY KEY AUTOINCREMENT, blg_
 CREATE TABLE IF NOT EXISTS video_jobs (id integer PRIMARY KEY AUTOINCREMENT, user_id text NOT NULL, heygen_video_id text NOT NULL UNIQUE, title text NOT NULL, script text NOT NULL, format text NOT NULL DEFAULT 'landscape', status text NOT NULL DEFAULT 'queued', video_url text, error text, created_at integer NOT NULL, updated_at integer NOT NULL);
 CREATE TABLE IF NOT EXISTS media_jobs (id integer PRIMARY KEY AUTOINCREMENT, user_id text NOT NULL, kind text NOT NULL, prompt text, status text NOT NULL DEFAULT 'done', result_url text, error text, created_at integer NOT NULL);
 CREATE TABLE IF NOT EXISTS trial_ips (id integer PRIMARY KEY AUTOINCREMENT, ip text NOT NULL UNIQUE, user_id text NOT NULL, created_at integer NOT NULL);
+CREATE TABLE IF NOT EXISTS user_settings (user_id text NOT NULL, key text NOT NULL, value text NOT NULL, created_at integer NOT NULL, PRIMARY KEY (user_id, key));
 `);
 
 // Column upgrades for databases created before these columns existed.

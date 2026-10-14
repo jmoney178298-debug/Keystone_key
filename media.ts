@@ -6,13 +6,28 @@ export const openaiConfigured = () => !!openaiKey();
 export const leonardoConfigured = () => !!process.env.LEONARDO_API_KEY;
 
 /** Generate an image with DALL-E 3. Returns a public image URL. */
-export async function generateImage(prompt: string): Promise<string> {
+export async function generateImage(prompt: string, opts: { style?: string; size?: string; quality?: string } = {}): Promise<string> {
   const key = openaiKey();
   if (!key) throw new Error("Image generation is not connected yet.");
+  const styles: Record<string, string> = {
+    photorealistic: "photorealistic, ultra-detailed, professional photography",
+    cinematic: "cinematic lighting, dramatic, film still quality",
+    cartoon: "vibrant cartoon style, bold colors, animated",
+    anime: "anime style, detailed, studio-quality illustration",
+    oilpainting: "classical oil painting, rich textures, artistic",
+    watercolor: "soft watercolor painting, delicate, artistic",
+    cyberpunk: "cyberpunk aesthetic, neon lights, futuristic",
+    minimal: "minimalist, clean lines, simple elegant composition",
+    threed: "3D render, octane render, high detail",
+    comic: "comic book art style, bold outlines, dynamic",
+  };
+  const styleHint = opts.style && styles[opts.style] ? `, ${styles[opts.style]}` : "";
+  const size = ["1024x1024", "1792x1024", "1024x1792"].includes(opts.size || "") ? opts.size! : "1024x1024";
+  const quality = opts.quality === "hd" ? "hd" : "standard";
   const r = await fetch("https://api.openai.com/v1/images/generations", {
     method: "POST",
     headers: { "Authorization": `Bearer ${key}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ model: "dall-e-3", prompt, n: 1, size: "1024x1024", quality: "standard" }),
+    body: JSON.stringify({ model: "dall-e-3", prompt: prompt + styleHint, n: 1, size, quality }),
   });
   const j = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(j?.error?.message || `Image generation failed (${r.status}).`);
@@ -22,14 +37,15 @@ export async function generateImage(prompt: string): Promise<string> {
 }
 
 /** Text-to-speech with OpenAI. Returns MP3 bytes. */
-export async function textToSpeech(text: string, voice = "alloy"): Promise<Buffer> {
+export async function textToSpeech(text: string, voice = "alloy", speed = 1.0): Promise<Buffer> {
   const key = openaiKey();
   if (!key) throw new Error("Voiceover is not connected yet.");
   const v = ["alloy", "echo", "fable", "onyx", "nova", "shimmer"].includes(voice) ? voice : "alloy";
+  const s = Math.min(4.0, Math.max(0.25, Number(speed) || 1.0));
   const r = await fetch("https://api.openai.com/v1/audio/speech", {
     method: "POST",
     headers: { "Authorization": `Bearer ${key}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ model: "tts-1", input: text, voice: v, response_format: "mp3" }),
+    body: JSON.stringify({ model: "tts-1", input: text, voice: v, speed: s, response_format: "mp3" }),
   });
   if (!r.ok) {
     const j = await r.json().catch(() => ({}));

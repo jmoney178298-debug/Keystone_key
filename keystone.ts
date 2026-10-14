@@ -11,7 +11,7 @@ import Stripe from "stripe";
 import crypto from "node:crypto";
 import { db, sqlite } from "./db";
 import { auth } from "./auth";
-import { affiliates, aiUsage, assistantConversations, assistantMessages, blgPosts, funnels, funnelLeads, ideas, leads, lifetimeAccess, limitHits, mediaJobs, partnerAccess, prospects, referrals, stripeEvents, subscriptions, trialIps, videoJobs } from "./schema";
+import { affiliates, aiUsage, assistantConversations, assistantMessages, blgPosts, contentJobs, funnels, funnelLeads, ideas, leads, lifetimeAccess, limitHits, mediaJobs, partnerAccess, prospects, referrals, stripeEvents, subscriptions, trialIps, userSettings, videoJobs } from "./schema";
 import { blgConfigured, blgGetArticle, blgListArticles, blgSyncArticles, blgUpsertArticle } from "./blg";
 import { heygenConfigured, heygenGenerateVideo, heygenVideoStatus } from "./heygen";
 import fs from "node:fs";
@@ -326,6 +326,32 @@ keystone.get("/api/billing/status", requireUser, async (c) => {  const [s] = awa
   });
 });
 
+/* ---------------- user settings: assistant name + preferences ---------------- */
+
+async function getSetting(userId: string, key: string): Promise<string | null> {
+  const [s] = await db.select().from(userSettings).where(and(eq(userSettings.userId, userId), eq(userSettings.key, key)));
+  return s?.value ?? null;
+}
+async function setSetting(userId: string, key: string, value: string) {
+  await db.insert(userSettings).values({ userId, key, value })
+    .onConflictDoUpdate({ target: [userSettings.userId, userSettings.key], set: { value } });
+}
+
+keystone.get("/api/settings", requireUser, async (c) => {
+  const userId = c.get("user").id;
+  const name = await getSetting(userId, "assistant_name");
+  return c.json({ assistantName: name || "Assistant" });
+});
+
+keystone.post("/api/settings", requireUser, async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  const name = clean(String(body.assistantName || ""), 30).trim();
+  if (!name) return c.json({ error: "Give your assistant a name." }, 400);
+  if (!/^[a-zA-Z0-9 '\-]{2,30}$/.test(name)) return c.json({ error: "Names can use letters, numbers, spaces, hyphens and apostrophes (2-30 characters)." }, 400);
+  await setSetting(c.get("user").id, "assistant_name", name);
+  return c.json({ assistantName: name });
+});
+
 async function syncSubscription(sub: Stripe.Subscription) {
   const userId = sub.metadata?.userId;
   if (!userId) return;
@@ -588,7 +614,7 @@ keystone.post("/api/studio/image", requireUser, requireSub, async (c) => {
   const prompt = clean(body.prompt, 1000);
   if (!prompt) return c.json({ error: "Describe the image you want." }, 400);
   try {
-    const url = await generateImage(prompt);
+    const url = await generateImage(prompt, { style: body.style, size: body.size, quality: body.quality });
     const [job] = await db.insert(mediaJobs).values({ userId: c.get("user").id, kind: "image", prompt, status: "done", resultUrl: url }).returning();
     return c.json({ id: job.id, resultUrl: url });
   } catch (e: any) { return c.json({ error: e?.message || "Image generation failed." }, 500); }
@@ -601,7 +627,7 @@ keystone.post("/api/studio/tts", requireUser, requireSub, async (c) => {
   const text = clean(body.text, 4000);
   if (!text) return c.json({ error: "Enter the text for the voiceover." }, 400);
   try {
-    const mp3 = await textToSpeech(text, body.voice);
+    const mp3 = await textToSpeech(text, body.voice, body.speed);
     const name = `tts-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.mp3`;
     fs.writeFileSync(path.join(MEDIA_DIR, name), mp3);
     const resultUrl = `/api/studio/file/${name}`;
@@ -634,6 +660,126 @@ keystone.get("/api/studio/file/:name", requireUser, async (c) => {
   if (!job && !c.get("isAdmin")) return c.json({ error: "Not found." }, 404);
   const ext = path.extname(name).toLowerCase();
   const type = ext === ".mp3" ? "audio/mpeg" : ext === ".png" ? "image/png" : "application/octet-stream";
+  return new Response(fs.readFileSync(fp), { headers: { "Content-Type": type, "Cache-Control": "public, max-age=31536000" } });
+});
+
+/* ---------------- content clipper: upload → transcribe → highlights → clips ---------------- */
+import { CONTENT_DIR, extractClip, findHighlights, isVideoFile, mediaDuration, transcribe } from "./content";
+
+/** Monthly content-clipper allowance per plan. Clipping is expensive (Whisper + AI + FFmpeg), so Basic doesn't get it. */
+const CLIPPER_MONTHLY_LIMIT: Record<string, number> = { basic: 0, pro: 3, proplus: 10, lifetime: 15 };
+async function clipperQuota(userId: string, isAdmin: boolean): Promise<{ ok: boolean; error?: string; used?: number; limit?: number }> {
+  if (isAdmin) return { ok: true };
+  const [s] = await db.select().from(subscriptions).where(eq(subscriptions.userId, userId));
+  const [life] = await db.select().from(lifetimeAccess).where(eq(lifetimeAccess.userId, userId));
+  const [part] = await db.select().from(partnerAccess).where(eq(partnerAccess.userId, userId));
+  const plan = life ? "lifetime" : part ? "proplus" : s?.plan ?? "basic";
+  const limit = CLIPPER_MONTHLY_LIMIT[plan] ?? 0;
+  const monthStart = new Date(); monthStart.setDate(1); monthStart.setHours(0, 0, 0, 0);
+  const [row] = await db.select({ n: sql<number>`count(*)` }).from(contentJobs)
+    .where(and(eq(contentJobs.userId, userId), sql`${contentJobs.createdAt} >= ${monthStart}`));
+  const used = row?.n ?? 0;
+  if (used >= limit) {
+    if (limit === 0) return { ok: false, used, limit, error: "Content clipping isn't included in the Basic plan. Upgrade to Pro to unlock it." };
+    return { ok: false, used, limit, error: `Monthly clipper limit reached (${used}/${limit}). Resets on the 1st, or upgrade your plan.` };
+  }
+  return { ok: true, used, limit };
+}
+
+/** Upload a video or audio file to start a clipping job. */
+keystone.post("/api/content/upload", requireUser, requireSub, async (c) => {
+  const q = await clipperQuota(c.get("user").id, c.get("isAdmin"));
+  if (!q.ok) return c.json({ error: q.error }, 429);
+  try {
+    const body = await c.req.parseBody();
+    const file = body["file"];
+    if (!file || typeof file === "string") return c.json({ error: "Attach a video or audio file." }, 400);
+    const f = file as File;
+    const sizeMB = f.size / 1024 / 1024;
+    if (sizeMB > 500) return c.json({ error: "File is too large. Maximum 500MB." }, 400);
+    const ext = (f.name.split(".").pop() || "mp3").toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 5);
+    const allowed = ["mp3", "wav", "m4a", "ogg", "mp4", "mov", "webm", "mkv", "avi"];
+    if (!allowed.includes(ext)) return c.json({ error: "Unsupported file type. Use MP3, WAV, M4A, MP4, MOV, or WebM." }, 400);
+    const fname = `src-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+    const fpath = path.join(CONTENT_DIR, fname);
+    fs.writeFileSync(fpath, Buffer.from(await f.arrayBuffer()));
+    const [isVid, dur] = await Promise.all([isVideoFile(fpath), mediaDuration(fpath)]);
+    const title = clean(String(body["title"] || f.name.replace(/\.[a-z0-9]+$/i, "")), 120) || "Untitled";
+    const [job] = await db.insert(contentJobs).values({
+      userId: c.get("user").id, title, sourceFile: fname,
+      isVideo: isVid ? 1 : 0, durationSec: dur, status: "uploaded",
+    }).returning();
+    return c.json({ id: job.id, title, durationSec: dur, isVideo: isVid });
+  } catch (e: any) { return c.json({ error: e?.message || "Upload failed." }, 500); }
+});
+
+/** Analyze a job: transcribe, find highlights, cut clips. Runs async. */
+keystone.post("/api/content/analyze/:id", requireUser, requireSub, async (c) => {
+  const id = Number(c.req.param("id"));
+  const [job] = await db.select().from(contentJobs).where(and(eq(contentJobs.id, id), eq(contentJobs.userId, c.get("user").id)));
+  if (!job) return c.json({ error: "Job not found." }, 404);
+  if (!["uploaded", "failed"].includes(job.status)) return c.json({ error: "This job is already processing." }, 400);
+  const body = await c.req.json().catch(() => ({}));
+  const mode = body.mode === "episodes" ? "episodes" : "highlights";
+  const clipCount = Math.min(20, Math.max(1, Number(body.clipCount) || 5));
+  const clipLength = ["short", "medium", "long"].includes(body.clipLength) ? body.clipLength : "medium";
+
+  await db.update(contentJobs).set({ status: "transcribing", error: null }).where(eq(contentJobs.id, id));
+
+  // Run the pipeline in the background.
+  (async () => {
+    try {
+      const srcPath = path.join(CONTENT_DIR, job.sourceFile);
+      await db.update(contentJobs).set({ status: "transcribing" }).where(eq(contentJobs.id, id));
+      const { text } = await transcribe(srcPath);
+      if (!text.trim()) throw new Error("Could not transcribe any speech from this file.");
+      await db.update(contentJobs).set({ status: "analyzing", transcript: text.slice(0, 200000) }).where(eq(contentJobs.id, id));
+      const highlights = await findHighlights(text, { mode, clipCount, clipLength });
+      if (!highlights.length) throw new Error("No highlights found in this recording.");
+      await db.update(contentJobs).set({ status: "clipping", highlights: JSON.stringify(highlights) }).where(eq(contentJobs.id, id));
+      const clips: { title: string; file: string; start: number; end: number }[] = [];
+      const isVid = !!job.isVideo;
+      for (const h of highlights) {
+        const end = Math.min(h.end, job.durationSec || h.end);
+        if (end <= h.start) continue;
+        const file = await extractClip(srcPath, h.start, end, isVid);
+        clips.push({ title: h.title, file, start: h.start, end: h.end });
+      }
+      await db.update(contentJobs).set({ status: "done", clips: JSON.stringify(clips) }).where(eq(contentJobs.id, id));
+    } catch (e: any) {
+      await db.update(contentJobs).set({ status: "failed", error: e?.message || "Processing failed." }).where(eq(contentJobs.id, id));
+    }
+  })();
+
+  return c.json({ ok: true, status: "processing" });
+});
+
+/** List the user's clipper jobs. */
+keystone.get("/api/content/jobs", requireUser, async (c) => {
+  const jobs = await db.select().from(contentJobs)
+    .where(eq(contentJobs.userId, c.get("user").id))
+    .orderBy(desc(contentJobs.createdAt)).limit(50);
+  return c.json(jobs.map(j => ({
+    id: j.id, title: j.title, status: j.status, error: j.error,
+    durationSec: j.durationSec, isVideo: !!j.isVideo,
+    highlights: j.highlights ? JSON.parse(j.highlights) : [],
+    clips: j.clips ? JSON.parse(j.clips).map((cl: any) => ({ ...cl, url: `/api/content/file/${cl.file}` })) : [],
+    createdAt: j.createdAt,
+  })));
+});
+
+/** Serve a clip file (only to its owner). */
+keystone.get("/api/content/file/:name", requireUser, async (c) => {
+  const name = c.req.param("name").replace(/[^a-zA-Z0-9._-]/g, "");
+  const fp = path.join(CONTENT_DIR, name);
+  if (!fs.existsSync(fp)) return c.json({ error: "Not found." }, 404);
+  const [job] = await db.select().from(contentJobs).where(eq(contentJobs.userId, c.get("user").id));
+  if (!job && !c.get("isAdmin")) return c.json({ error: "Not found." }, 404);
+  // Verify this file belongs to one of the user's clips.
+  const owned = job && job.clips && JSON.parse(job.clips).some((cl: any) => cl.file === name);
+  if (!owned && !c.get("isAdmin")) return c.json({ error: "Not found." }, 404);
+  const ext = path.extname(name).toLowerCase();
+  const type = ext === ".mp3" ? "audio/mpeg" : ext === ".mp4" ? "video/mp4" : "application/octet-stream";
   return new Response(fs.readFileSync(fp), { headers: { "Content-Type": type, "Cache-Control": "public, max-age=31536000" } });
 });
 
@@ -1462,10 +1608,12 @@ keystone.post("/api/assistant/chat", requireUser, requireSub, async (c) => {
   }
 
   const callAnthropic = async (msgs: any[]) => {
+    const aName = await getSetting(user.id, "assistant_name") || "Assistant";
+    const sysPrompt = `Your name is ${aName}. The user named you this — always introduce yourself as ${aName} and sign off as ${aName} when natural.\n\n${ASSISTANT_SYSTEM}`;
     const r = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: { "x-api-key": process.env.ANTHROPIC_API_KEY!, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-      body: JSON.stringify({ model: AI_MODEL, max_tokens: 4000, system: ASSISTANT_SYSTEM, tools: ASSISTANT_TOOLS, messages: msgs }),
+      body: JSON.stringify({ model: AI_MODEL, max_tokens: 4000, system: sysPrompt, tools: ASSISTANT_TOOLS, messages: msgs }),
     });
     if (!r.ok) {
       const bodyText = await r.text().catch(() => "");
@@ -1592,10 +1740,12 @@ keystone.post("/api/assistant/agent", requireUser, requireSub, async (c) => {
       const callAnthropic = async (msgs: any[]) => {
         const q = await aiQuota(user.id, c.get("isAdmin"));
         if (!q.ok) throw { status: 429, error: q.error };
+        const aName = await getSetting(user.id, "assistant_name") || "Assistant";
+        const sysPrompt = `Your name is ${aName}. The user named you this — refer to yourself as ${aName}.\n\n${AGENT_SYSTEM}`;
         const r = await fetch("https://api.anthropic.com/v1/messages", {
           method: "POST",
           headers: { "x-api-key": process.env.ANTHROPIC_API_KEY!, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-          body: JSON.stringify({ model: AI_MODEL, max_tokens: 4000, system: AGENT_SYSTEM, tools: ASSISTANT_TOOLS, messages: msgs }),
+          body: JSON.stringify({ model: AI_MODEL, max_tokens: 4000, system: sysPrompt, tools: ASSISTANT_TOOLS, messages: msgs }),
         });
         if (!r.ok) throw { status: 502, error: "The AI service had a problem. Try again in a moment." };
         return r.json();
