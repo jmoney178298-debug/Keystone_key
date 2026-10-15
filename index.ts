@@ -57,6 +57,7 @@ app.get("/", (c) => c.html(fs.readFileSync("index.html", "utf8")));
 
 // SEO/GEO discoverability files
 app.get("/robots.txt", (c) => c.body(fs.readFileSync("robots.txt", "utf8"), 200, { "Content-Type": "text/plain", "Cache-Control": "public, max-age=86400" }));
+app.get("/ads.txt", (c) => c.body(fs.readFileSync("ads.txt", "utf8"), 200, { "Content-Type": "text/plain", "Cache-Control": "public, max-age=86400" }));
 app.get("/sitemap.xml", async (c) => {
   // Dynamic sitemap: homepage + every synced blog post.
   let urls = `  <url><loc>https://www.getaiu.online/</loc><lastmod>2026-10-12</lastmod><changefreq>weekly</changefreq><priority>1.0</priority></url>\n`;
