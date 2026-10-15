@@ -85,10 +85,27 @@ let artifact=null; // {name, code}
 let limits={plan:'basic',limit:20,used:0};
 const dshort=t=>{try{return new Date(t).toLocaleDateString(undefined,{month:'short',day:'numeric'})}catch(e){return''}};
 
-const NAV=[['assist','Assistant'],['funnels','Funnels & Leads'],['videos','Videos'],['studio','Studio'],['tools','AI Tools'],['aff','Affiliates']];
+const NAV=[
+ ['assist','Assistant',"This is your right hand. Tell it what you need — funnels, copy, answers, ideas. It learns how you work and gets sharper every time you talk to it. I built it to be the assistant I always wished I had."],
+ ['funnels','Funnels & Leads',"This is where money gets made. Build pages that capture leads, then work those leads. Every business needs this — I built mine on it."],
+ ['videos','Videos',"Spokesperson videos without touching a camera. Type your script, pick your format, done. Made for ads."],
+ ['studio','Studio',"Your creative shop. Images, voiceovers, background removal — plus the clipper that turns long videos into short viral clips."],
+ ['tools','AI Tools',"Every AI in one place. Connect your keys, unlock premium voices and AI search. Track every subscription so nothing ever sneaks up on you again."],
+ ['aff','Affiliates',"Get paid to spread the word. Share your link, earn commission on every signup. This is how we all eat."],
+];
+const NAV_ADMIN=['admin','Admin',"The command center. Your numbers, your people, your business — everything in one view."];
+function founderTip(id,ev){ev.stopPropagation();const d=NAV.concat([NAV_ADMIN]).find(n=>n[0]==id);if(!d)return;let t=document.getElementById('founderTip');if(t){t.remove();if(t.dataset.for==id)return}
+ t=document.createElement('div');t.id='founderTip';t.dataset.for=id;
+ t.style.cssText='position:fixed;z-index:200;max-width:300px;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px;box-shadow:0 8px 32px rgba(0,0,0,.5);display:flex;gap:12px;align-items:flex-start';
+ t.innerHTML=`<img src="/founder.jpg" style="width:48px;height:48px;border-radius:50%;object-fit:cover;flex:none;border:2px solid var(--lime)"><div><b style="font-size:13px">Javier — founder</b><p class="sub" style="margin:4px 0 0;font-size:13px;line-height:1.45">${d[2]}</p></div>`;
+ document.body.appendChild(t);
+ const r=ev.target.getBoundingClientRect();let x=Math.min(window.innerWidth-320,Math.max(10,r.left));let y=r.bottom+8;if(y+160>window.innerHeight)y=Math.max(10,r.top-170);
+ t.style.left=x+'px';t.style.top=y+'px';
+ setTimeout(()=>{const c=e=>{if(!t.contains(e.target)){t.remove();document.removeEventListener('click',c)}};document.addEventListener('click',c)},10);
+}
 function renderSide(){
   $('#side').innerHTML='<div class="logo" style="display:flex;align-items:center;gap:10px"><svg width="36" height="36" viewBox="0 0 48 48"><rect width="48" height="48" rx="12" fill="#161c22" stroke="#38434e" stroke-width="1.5"/><path d="M10 33 L24 11 L38 33" stroke="#ff4f33" stroke-width="6.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/><circle cx="24" cy="36" r="3.2" fill="#ff4f33"/></svg><span>AI<i>U</i></span></div>'+
-    NAV.concat(isAdmin?[['admin','Admin']]:[]).map(n=>`<button class="nav ${n[0]==view?'on':''}" onclick="setView('${n[0]}')">${n[1]}${n[0]=='funnels'&&newLeadCount()>0?` <span class="pill" style="border-color:var(--lime);color:var(--lime)">${newLeadCount()} new</span>`:''}</button>`).join('')+
+    NAV.concat(isAdmin?[NAV_ADMIN]:[]).map(n=>`<button class="nav ${n[0]==view?'on':''}" onclick="setView('${n[0]}')" style="display:flex;align-items:center;gap:8px"><img src="/founder.jpg" onclick="founderTip('${n[0]}',event)" title="What is this?" style="width:24px;height:24px;border-radius:50%;object-fit:cover;flex:none;cursor:help;border:1px solid var(--line)"><span>${n[1]}</span>${n[0]=='funnels'&&newLeadCount()>0?` <span class="pill" style="border-color:var(--lime);color:var(--lime)">${newLeadCount()} new</span>`:''}</button>`).join('')+
     `<div class="foot"><span class="pill">${limits.limit<0?'AI: unlimited':`AI: ${limits.used}/${limits.limit} today`}</span><button class="nav" id="pwaBtn" style="display:none;border:1px solid var(--lime);color:var(--lime)" onclick="pwaInstall()">Install app</button><button class="nav" onclick="setView('bill')">Billing</button><button class="nav" onclick="out()">Sign out</button></div>`;
   showPwaBtn();
 }
