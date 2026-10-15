@@ -32,7 +32,7 @@ export const AI_SERVICES: AiService[] = [
   { id: "leonardo", name: "Leonardo AI", description: "Image generation + background removal", tools: ["Image gen", "Background removal"], keyHint: "app.leonardo.ai → API access", builtin: true, envVar: "LEONARDO_API_KEY" },
   { id: "heygen", name: "HeyGen", description: "AI spokesperson / talking-head videos", tools: ["Spokesperson video"], keyHint: "app.heygen.ai → API", builtin: true, envVar: "HEYGEN_API_KEY" },
   { id: "elevenlabs", name: "ElevenLabs", description: "Ultra-realistic AI voiceover in 30+ voices", tools: ["Premium TTS"], keyHint: "elevenlabs.io → Profile → API keys", keyPrefix: "sk_", builtin: false },
-  { id: "gemini", name: "Google Gemini", description: "Google's AI — chat, vision, fast reasoning", tools: ["Chat", "Vision"], keyHint: "aistudio.google.com → Get API key", keyPrefix: "AIza", builtin: false },
+  { id: "gemini", name: "Google Gemini", description: "Google's AI — chat, vision, fast reasoning", tools: ["Chat", "Vision"], keyHint: "aistudio.google.com → Get API key", builtin: false },
   { id: "perplexity", name: "Perplexity", description: "AI search with cited sources — research assistant", tools: ["AI search"], keyHint: "perplexity.ai → Settings → API", keyPrefix: "pplx-", builtin: false },
   { id: "grok", name: "xAI Grok", description: "Grok chat with real-time X/Twitter knowledge", tools: ["Chat"], keyHint: "console.x.ai → API keys", keyPrefix: "xai-", builtin: false },
 ];
@@ -61,15 +61,25 @@ export function decryptApiKey(encB64: string, ivB64: string): string {
   return Buffer.concat([decipher.update(enc), decipher.final()]).toString("utf8");
 }
 
-/** Get a service's API key: env var for built-ins, encrypted DB row for pluggable. */
+/** Get a service's API key: env var first, then encrypted DB row for pluggable. */
 export async function getServiceKey(serviceId: string): Promise<string | null> {
   const svc = AI_SERVICES.find((s) => s.id === serviceId);
   if (!svc) return null;
-  if (svc.builtin && svc.envVar) {
-    // OpenAI also honors OPENAI_API_KEY fallback
-    if (serviceId === "openai") return process.env.OPENAI_APP_KEY || process.env.OPENAI_API_KEY || null;
-    return process.env[svc.envVar] || null;
+  // Env var always wins when present (Railway variables).
+  const envMap: Record<string, string[]> = {
+    openai: ["OPENAI_APP_KEY", "OPENAI_API_KEY"],
+    anthropic: ["ANTHROPIC_API_KEY"],
+    leonardo: ["LEONARDO_API_KEY"],
+    heygen: ["HEYGEN_API_KEY"],
+    elevenlabs: ["ELEVENLABS_API_KEY"],
+    gemini: ["GEMINI_API_KEY"],
+    perplexity: ["PERPLEXITY_API_KEY"],
+    grok: ["GROK_API_KEY", "XAI_API_KEY"],
+  };
+  for (const v of envMap[serviceId] || []) {
+    if (process.env[v]) return process.env[v]!;
   }
+  if (svc.builtin) return null;
   const [row] = await db.select().from(integrationKeys).where(eq(integrationKeys.service, serviceId));
   if (!row) return null;
   try { return decryptApiKey(row.apiKeyEnc, row.iv); } catch { return null; }
@@ -116,8 +126,10 @@ export async function geminiChat(prompt: string, system?: string): Promise<strin
   const key = await getServiceKey("gemini");
   if (!key) throw new Error("Gemini API key not configured. Add it in AI Tools → Integrations.");
   const body: any = { contents: [{ parts: [{ text: (system ? system + "\n\n" : "") + prompt }] }] };
-  const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${key}`, {
-    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+  const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-goog-api-key": key },
+    body: JSON.stringify(body),
   });
   if (!r.ok) throw new Error(`Gemini error ${r.status}`);
   const j: any = await r.json();
