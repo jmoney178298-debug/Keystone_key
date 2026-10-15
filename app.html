@@ -85,7 +85,7 @@ let artifact=null; // {name, code}
 let limits={plan:'basic',limit:20,used:0};
 const dshort=t=>{try{return new Date(t).toLocaleDateString(undefined,{month:'short',day:'numeric'})}catch(e){return''}};
 
-const NAV=[['assist','Assistant'],['funnels','Funnels & Leads'],['videos','Videos'],['studio','Studio'],['aff','Affiliates']];
+const NAV=[['assist','Assistant'],['funnels','Funnels & Leads'],['videos','Videos'],['studio','Studio'],['tools','AI Tools'],['aff','Affiliates']];
 function renderSide(){
   $('#side').innerHTML='<div class="logo" style="display:flex;align-items:center;gap:10px"><svg width="36" height="36" viewBox="0 0 48 48"><rect width="48" height="48" rx="12" fill="#161c22" stroke="#38434e" stroke-width="1.5"/><path d="M10 33 L24 11 L38 33" stroke="#ff4f33" stroke-width="6.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/><circle cx="24" cy="36" r="3.2" fill="#ff4f33"/></svg><span>AI<i>U</i></span></div>'+
     NAV.concat(isAdmin?[['admin','Admin']]:[]).map(n=>`<button class="nav ${n[0]==view?'on':''}" onclick="setView('${n[0]}')">${n[1]}${n[0]=='funnels'&&newLeadCount()>0?` <span class="pill" style="border-color:var(--lime);color:var(--lime)">${newLeadCount()} new</span>`:''}</button>`).join('')+
@@ -352,6 +352,59 @@ async function affLoad(){try{const r=await api('/api/affiliates/me');AFF=r.ok?r.
 function affBodyHtml(){
   return AFF===null?'<div class="card">Loading...</div>':AFF==='err'?`<div class="card"><b>Couldn't load affiliates</b><p style="color:var(--stone)">${esc(AFFERR)}</p><div class="row" style="margin-top:10px"><button class="btn lime" onclick="AFF=null;AFFERR='';render();affLoad()">Try again</button></div></div>`:(AFF.affiliate?affDash(AFF):affJoin());
 }
+/* ---------- AI Tools hub ---------- */
+let TOOLS_SVCS=[];
+async function toolsLoad(){try{const r=await api('/api/integrations');TOOLS_SVCS=r.ok?(r.data.services||[]):[]}catch(e){TOOLS_SVCS=[]}const b=document.getElementById('toolsbody');if(b&&view=='tools')b.innerHTML=toolsHtml()}
+function toolsHtml(){
+  if(!TOOLS_SVCS.length)return '<p class="sub">Could not load services.</p>';
+  return TOOLS_SVCS.map(s=>{
+    const badge=s.connected?'<span class="pill" style="border-color:var(--lime);color:var(--lime)">Connected</span>':'<span class="pill">Not connected</span>';
+    const tools=(s.tools||[]).map(t=>`<span class="pill" style="font-size:11px">${t}</span>`).join(' ');
+    let action='';
+    if(s.builtin){action=`<p class="sub" style="margin-top:8px">Key: <code>${s.envVar||''}</code> (server)</p>`}
+    else if(s.connected&&isAdmin){action=`<div class="row" style="margin-top:8px;gap:8px"><input id="key-${s.id}" type="password" placeholder="Paste new key to update..." style="flex:1;background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px;color:var(--txt)"><button class="btn" onclick="saveKey('${s.id}')">Update</button><button class="btn" onclick="delKey('${s.id}')">Remove</button></div>`}
+    else if(!s.connected&&isAdmin){action=`<div class="row" style="margin-top:8px;gap:8px"><input id="key-${s.id}" type="password" placeholder="Paste API key..." style="flex:1;background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px;color:var(--txt)"><button class="btn lime" onclick="saveKey('${s.id}')">Connect</button></div><p class="sub" style="margin-top:6px">Get a key: ${s.keyHint}</p>`}
+    else if(!s.connected){action='<p class="sub" style="margin-top:8px">Ask the owner to connect this service.</p>'}
+    return `<div class="card"><div class="row" style="justify-content:space-between;align-items:center"><b>${s.name}</b>${badge}</div><p class="sub">${s.description}</p><div style="margin:8px 0">${tools}</div>${action}</div>`;
+  }).join('');
+}
+async function saveKey(id){const i=document.getElementById('key-'+id);if(!i.value.trim()){toast('Paste the API key first.');return}const r=await api('/api/integrations/'+id,{apiKey:i.value.trim()});if(r.ok){toast('Connected!');toolsLoad()}else toast(r.data.error||'Could not save key.')}
+async function delKey(id){if(!confirm('Remove this integration?'))return;const r=await api('/api/integrations/'+id,null,'DELETE');if(r.ok){toast('Removed.');toolsLoad()}else toast('Could not remove.')}
+/* Premium voice + AI search + alt chat (visible when connected) */
+async function xiTts(){const t=document.getElementById('xiText');if(!t.value.trim()){toast('Enter text first.');return}toast('Generating premium voiceover...');const r=await api('/api/integrations/elevenlabs/tts',{text:t.value});if(r.ok){t.value='';studioLoad();toast('Voiceover ready — check Studio jobs.')}else toast(r.data.error||'Voiceover failed.')}
+async function pxSearch(){const q=document.getElementById('pxQ');if(!q.value.trim()){toast('Enter a question.');return}const out=document.getElementById('pxOut');out.innerHTML='<p class="sub">Searching...</p>';const r=await api('/api/integrations/perplexity/search',{query:q.value});if(r.ok){const cites=(r.data.citations||[]).map(c=>`<a href="${c}" target="_blank" style="color:var(--lime)">${c}</a>`).join('<br>');out.innerHTML=`<div class="card" style="margin-top:8px"><p>${(r.data.answer||'').replace(/\n/g,'<br>')}</p>${cites?'<p class="sub" style="margin-top:8px"><b>Sources:</b><br>'+cites+'</p>':''}</div>`}else out.innerHTML=`<p class="sub">${r.data.error||'Search failed.'}</p>`}
+async function altChat(svc){const i=document.getElementById('alt-'+svc);if(!i.value.trim()){toast('Enter a message.');return}const out=document.getElementById('altout-'+svc);out.innerHTML='<p class="sub">Thinking...</p>';const r=await api('/api/integrations/'+svc+'/chat',{prompt:i.value});if(r.ok){out.innerHTML=`<div class="card" style="margin-top:8px"><p>${(r.data.reply||'').replace(/\n/g,'<br>')}</p></div>`;i.value=''}else out.innerHTML=`<p class="sub">${r.data.error||'Chat failed.'}</p>`}
+/* ---------- AI subscription tracker ---------- */
+let SUBS=[];
+async function subsLoad(){try{const r=await api('/api/ai-subscriptions');SUBS=r.ok?(r.data.subscriptions||[]):[]}catch(e){SUBS=[]}const b=document.getElementById('subsbody');if(b&&view=='tools')b.innerHTML=subsHtml()}
+function subMoney(cents,cur){return (cur||'USD')+' $'+(cents/100).toFixed(2).replace(/\.00$/,'')}
+function subsHtml(){
+  if(!SUBS.length)return '<p class="sub">No subscriptions tracked yet. Add every AI tool you pay for below — never get surprised by a renewal again.</p>';
+  const total=SUBS.filter(s=>s.status==='active').reduce((a,s)=>a+(s.billingCycle==='monthly'?(s.costCents||0):s.billingCycle==='yearly'?(s.costCents||0)/12:0),0);
+  const rows=SUBS.map(s=>{
+    const warn=s.urgent?'<span class="pill" style="border-color:#ff4f33;color:#ff4f33">Renews soon</span>':s.daysUntil!=null?`<span class="pill">${s.daysUntil}d</span>`:'';
+    const cyc=s.billingCycle==='trial'?'Trial':s.billingCycle;
+    return `<div class="card" style="margin-bottom:8px"><div class="row" style="justify-content:space-between;align-items:center"><b>${s.serviceName}</b>${warn}</div><p class="sub">${s.planName||''} · ${cyc} · ${subMoney(s.costCents,s.currency)}${s.status!=='active'?' · '+s.status:''}</p><div class="row" style="gap:8px;margin-top:6px">${s.cancelUrl?`<a class="btn" href="${s.cancelUrl}" target="_blank">Cancel page</a>`:''}${s.status==='active'?`<button class="btn" onclick="subCancel(${s.id})">Mark canceled</button>`:''}<button class="btn" onclick="subDel(${s.id})">Remove</button></div></div>`;
+  }).join('');
+  return `<p class="sub" style="margin-bottom:10px">Active monthly spend: <b style="color:var(--txt)">${subMoney(Math.round(total),'USD')}/mo</b></p>${rows}`;
+}
+async function subAdd(){const n=document.getElementById('subName');if(!n.value.trim()){toast('Name the service.');return}const r=await api('/api/ai-subscriptions',{serviceName:n.value,planName:document.getElementById('subPlan').value,costCents:Math.round(parseFloat(document.getElementById('subCost').value||'0')*100),billingCycle:document.getElementById('subCycle').value,renewalDate:document.getElementById('subRenew').value||null,cancelUrl:document.getElementById('subCancel').value,notes:document.getElementById('subNotes').value});if(r.ok){toast('Tracked!');subsLoad();['subName','subPlan','subCost','subRenew','subCancel','subNotes'].forEach(id=>document.getElementById(id).value='')}else toast(r.data.error||'Could not add.')}
+async function subCancel(id){const r=await api('/api/ai-subscriptions/'+id+'/cancel',{},'POST');if(r.ok)subsLoad()}
+async function subDel(id){if(!confirm('Remove this subscription?'))return;const r=await api('/api/ai-subscriptions/'+id,null,'DELETE');if(r.ok)subsLoad()}
+function vTools(){
+  const xi=TOOLS_SVCS.find(s=>s.id==='elevenlabs'&&s.connected);
+  const px=TOOLS_SVCS.find(s=>s.id==='perplexity'&&s.connected);
+  const gm=TOOLS_SVCS.find(s=>s.id==='gemini'&&s.connected);
+  const gk=TOOLS_SVCS.find(s=>s.id==='grok'&&s.connected);
+  return `<div class="fade"><h1>AI <i>Tools</i></h1><p class="sub">Every AI the app can use — connect new services, use their tools, and track what you're paying for.</p>
+  <div class="card" style="border-color:var(--lime)"><b>💳 My AI Subscriptions</b><p class="sub">Track every AI tool you pay for. Renewal warnings appear here before you're charged.</p><div id="subsbody" style="margin:10px 0">${subsHtml()}</div><div style="display:grid;gap:8px;margin-top:10px"><div class="row" style="gap:8px;flex-wrap:wrap"><input id="subName" placeholder="Service (e.g. OpenGen)" style="flex:2;background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px;color:var(--txt)"><input id="subPlan" placeholder="Plan" style="flex:1;background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px;color:var(--txt)"><input id="subCost" type="number" min="0" step="0.01" placeholder="$/period" style="flex:1;background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px;color:var(--txt)"></div><div class="row" style="gap:8px;flex-wrap:wrap"><select id="subCycle" style="background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px;color:var(--txt)"><option value="monthly">Monthly</option><option value="yearly">Yearly</option><option value="trial">Trial</option><option value="one_time">One-time</option></select><input id="subRenew" type="date" style="background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px;color:var(--txt)"><input id="subCancel" placeholder="Cancel URL (optional)" style="flex:2;background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px;color:var(--txt)"></div><input id="subNotes" placeholder="Notes (optional)" style="background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px;color:var(--txt)"><div class="row"><button class="btn lime" onclick="subAdd()">Track subscription</button></div></div></div>
+  ${xi?`<div class="card"><b>🎙️ Premium Voiceover</b><p class="sub">ElevenLabs — ultra-realistic voices.</p><div style="display:grid;gap:8px;margin-top:10px"><textarea id="xiText" placeholder="Paste the script..." maxlength="5000" style="min-height:70px"></textarea><div class="row"><button class="btn lime" onclick="xiTts()">Generate premium voiceover</button></div></div></div>`:''}
+  ${px?`<div class="card"><b>🔍 AI Search</b><p class="sub">Perplexity — answers with cited sources.</p><div style="display:grid;gap:8px;margin-top:10px"><input id="pxQ" placeholder="Ask anything to research..." style="background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px;color:var(--txt)"><div class="row"><button class="btn lime" onclick="pxSearch()">Search</button></div><div id="pxOut"></div></div></div>`:''}
+  ${gm?`<div class="card"><b>✨ Gemini</b><p class="sub">Google's AI chat.</p><div style="display:grid;gap:8px;margin-top:10px"><input id="alt-gemini" placeholder="Message Gemini..." style="background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px;color:var(--txt)"><div class="row"><button class="btn lime" onclick="altChat('gemini')">Send</button></div><div id="altout-gemini"></div></div></div>`:''}
+  ${gk?`<div class="card"><b>𝕏 Grok</b><p class="sub">xAI chat with real-time X knowledge.</p><div style="display:grid;gap:8px;margin-top:10px"><input id="alt-grok" placeholder="Message Grok..." style="background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px;color:var(--txt)"><div class="row"><button class="btn lime" onclick="altChat('grok')">Send</button></div><div id="altout-grok"></div></div></div>`:''}
+  <div class="card"><b>🔌 Connected Services</b><p class="sub">Every AI the app knows. ${isAdmin?'Paste a key to connect a new one.':''}</p><div id="toolsbody" style="margin-top:10px">${toolsHtml()}</div></div>
+  </div>`;
+}
 function vAff(){
   const body=affBodyHtml();
   return `<div class="fade"><h1>Affi<i>liates</i></h1><p class="sub">Share your link. Start at 15% and climb to 50% as you refer more — paid out monthly once you hit $50.</p>
@@ -443,11 +496,12 @@ async function ideaStatus(id,status){await fetch('/api/admin/ideas/'+id+'/status
 /* ---------- boot ---------- */
 function render(){
   renderSide();
-  $('#main').innerHTML=({assist:vAssist,funnels:vFunnels,videos:vVideos,studio:vStudio,aff:vAff,bill:vBill,admin:vAdmin})[view]();
+  $('#main').innerHTML=({assist:vAssist,funnels:vFunnels,videos:vVideos,studio:vStudio,tools:vTools,aff:vAff,bill:vBill,admin:vAdmin})[view]();
   if(view=='assist'){renderArtifact();const l=$('#chatlog');if(l)l.scrollTop=l.scrollHeight}
   if(view=='funnels')funLoad();
   if(view=='videos')vidLoad();
   if(view=='studio'){studioLoad();clipLoad();}
+  if(view=='tools'){toolsLoad();subsLoad();}
   if(view=='aff')affLoad();
   if(view=='bill')billLoad();
   if(view=='admin')admLoad();

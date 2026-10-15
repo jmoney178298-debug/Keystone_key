@@ -36,7 +36,10 @@ CREATE TABLE IF NOT EXISTS blg_posts (id integer PRIMARY KEY AUTOINCREMENT, blg_
 CREATE TABLE IF NOT EXISTS video_jobs (id integer PRIMARY KEY AUTOINCREMENT, user_id text NOT NULL, heygen_video_id text NOT NULL UNIQUE, title text NOT NULL, script text NOT NULL, format text NOT NULL DEFAULT 'landscape', status text NOT NULL DEFAULT 'queued', video_url text, error text, created_at integer NOT NULL, updated_at integer NOT NULL);
 CREATE TABLE IF NOT EXISTS media_jobs (id integer PRIMARY KEY AUTOINCREMENT, user_id text NOT NULL, kind text NOT NULL, prompt text, status text NOT NULL DEFAULT 'done', result_url text, error text, created_at integer NOT NULL);
 CREATE TABLE IF NOT EXISTS trial_ips (id integer PRIMARY KEY AUTOINCREMENT, ip text NOT NULL UNIQUE, user_id text NOT NULL, created_at integer NOT NULL);
+CREATE TABLE IF NOT EXISTS content_jobs (id integer PRIMARY KEY AUTOINCREMENT, user_id text NOT NULL, title text NOT NULL, source_file text NOT NULL, is_video integer NOT NULL DEFAULT 0, duration_sec integer NOT NULL DEFAULT 0, transcript text, highlights text, clips text, status text NOT NULL DEFAULT 'uploaded', error text, created_at integer NOT NULL);
 CREATE TABLE IF NOT EXISTS user_settings (user_id text NOT NULL, key text NOT NULL, value text NOT NULL, created_at integer NOT NULL, PRIMARY KEY (user_id, key));
+CREATE TABLE IF NOT EXISTS integration_keys (service text PRIMARY KEY, api_key_enc text NOT NULL, iv text NOT NULL, updated_at integer NOT NULL);
+CREATE TABLE IF NOT EXISTS ai_subscriptions (id integer PRIMARY KEY AUTOINCREMENT, user_id text NOT NULL, service_name text NOT NULL, plan_name text, cost_cents integer NOT NULL DEFAULT 0, currency text NOT NULL DEFAULT 'USD', billing_cycle text NOT NULL DEFAULT 'monthly', renewal_date integer, trial_ends integer, cancel_url text, notes text, status text NOT NULL DEFAULT 'active', created_at integer NOT NULL);
 `);
 
 // Column upgrades for databases created before these columns existed.

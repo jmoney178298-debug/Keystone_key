@@ -259,3 +259,28 @@ export const userSettings = sqliteTable("user_settings", {
   value: text("value").notNull(),
   createdAt: createdAt(),
 }, (t) => [primaryKey({ columns: [t.userId, t.key] })]);
+
+/** API keys for third-party AI services (encrypted at rest, never sent to client). */
+export const integrationKeys = sqliteTable("integration_keys", {
+  service: text("service").primaryKey(), // elevenlabs | gemini | perplexity | grok | openai | anthropic | leonardo | heygen
+  apiKeyEnc: text("api_key_enc").notNull(), // AES-256-GCM encrypted
+  iv: text("iv").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+});
+
+/** AI subscription tracker: every AI tool subscription with renewal dates + cancel links. */
+export const aiSubscriptions = sqliteTable("ai_subscriptions", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  userId: text("user_id").notNull(),
+  serviceName: text("service_name").notNull(), // e.g. "OpenGen"
+  planName: text("plan_name"), // e.g. "Pro Trial"
+  costCents: integer("cost_cents").notNull().default(0), // renewal cost in cents
+  currency: text("currency").notNull().default("USD"),
+  billingCycle: text("billing_cycle").notNull().default("monthly"), // monthly | yearly | one_time | trial
+  renewalDate: integer("renewal_date"), // unix ms of next renewal/charge
+  trialEnds: integer("trial_ends"), // unix ms when trial converts
+  cancelUrl: text("cancel_url"),
+  notes: text("notes"),
+  status: text("status").notNull().default("active"), // active | canceled | expired
+  createdAt: createdAt(),
+});

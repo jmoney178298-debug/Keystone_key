@@ -11,7 +11,7 @@ import Stripe from "stripe";
 import crypto from "node:crypto";
 import { db, sqlite } from "./db";
 import { auth } from "./auth";
-import { affiliates, aiUsage, assistantConversations, assistantMessages, blgPosts, contentJobs, funnels, funnelLeads, ideas, leads, lifetimeAccess, limitHits, mediaJobs, partnerAccess, prospects, referrals, stripeEvents, subscriptions, trialIps, userSettings, videoJobs } from "./schema";
+import { affiliates, aiSubscriptions, aiUsage, assistantConversations, assistantMessages, blgPosts, contentJobs, funnels, funnelLeads, ideas, integrationKeys, leads, lifetimeAccess, limitHits, mediaJobs, partnerAccess, prospects, referrals, stripeEvents, subscriptions, trialIps, userSettings, videoJobs } from "./schema";
 import { blgConfigured, blgGetArticle, blgListArticles, blgSyncArticles, blgUpsertArticle } from "./blg";
 import { heygenConfigured, heygenGenerateVideo, heygenVideoStatus } from "./heygen";
 import fs from "node:fs";
@@ -350,6 +350,110 @@ keystone.post("/api/settings", requireUser, async (c) => {
   if (!/^[a-zA-Z0-9 '\-]{2,30}$/.test(name)) return c.json({ error: "Names can use letters, numbers, spaces, hyphens and apostrophes (2-30 characters)." }, 400);
   await setSetting(c.get("user").id, "assistant_name", name);
   return c.json({ assistantName: name });
+});
+
+/* ---------- AI Tools hub: integrations ---------- */
+keystone.get("/api/integrations", requireUser, async (c) => {
+  const { serviceStatuses } = await import("./integrations");
+  return c.json({ services: await serviceStatuses() });
+});
+// Save/update an API key for a pluggable service (owner only — keys are sensitive)
+keystone.post("/api/integrations/:service", requireUser, requireAdmin, async (c) => {
+  const { setServiceKey } = await import("./integrations");
+  const body = await c.req.json().catch(() => ({}));
+  const key = String(body.apiKey || "").trim();
+  if (key.length < 8) return c.json({ error: "That doesn't look like an API key." }, 400);
+  try { await setServiceKey(c.req.param("service"), key); }
+  catch (e: any) { return c.json({ error: e.message || "Could not save key." }, 400); }
+  return c.json({ ok: true });
+});
+keystone.delete("/api/integrations/:service", requireUser, requireAdmin, async (c) => {
+  const { deleteServiceKey } = await import("./integrations");
+  await deleteServiceKey(c.req.param("service"));
+  return c.json({ ok: true });
+});
+// ElevenLabs premium TTS (counts against Studio quota)
+keystone.post("/api/integrations/elevenlabs/tts", requireUser, requireSub, async (c) => {
+  const { elevenlabsTts } = await import("./integrations");
+  const q = await studioQuota(c.get("user").id, c.get("isAdmin"));
+  if (!q.ok) return c.json({ error: q.error }, 429);
+  const body = await c.req.json().catch(() => ({}));
+  const text = clean(String(body.text || ""), 5000).trim();
+  if (!text) return c.json({ error: "Enter some text." }, 400);
+  try {
+    const audio = await elevenlabsTts(text, String(body.voiceId || "21m00Tcm4TlvDq8ikWAM"));
+    const name = `xi-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.mp3`;
+    fs.writeFileSync(path.join(MEDIA_DIR, name), audio);
+    const resultUrl = `/api/studio/file/${name}`;
+    const [job] = await db.insert(mediaJobs).values({ userId: c.get("user").id, kind: "elevenlabs_tts", prompt: text.slice(0, 200), status: "done", resultUrl }).returning();
+    return c.json({ id: job.id, resultUrl });
+  } catch (e: any) { return c.json({ error: e.message || "Voiceover failed." }, 502); }
+});
+// Perplexity AI search
+keystone.post("/api/integrations/perplexity/search", requireUser, async (c) => {
+  const { perplexitySearch } = await import("./integrations");
+  const body = await c.req.json().catch(() => ({}));
+  const q = clean(String(body.query || ""), 500).trim();
+  if (!q) return c.json({ error: "Enter a search query." }, 400);
+  try { return c.json(await perplexitySearch(q)); }
+  catch (e: any) { return c.json({ error: e.message || "Search failed." }, 502); }
+});
+// Gemini + Grok chat (counts against daily AI quota)
+keystone.post("/api/integrations/:service/chat", requireUser, requireSub, async (c) => {
+  const service = c.req.param("service");
+  if (service !== "gemini" && service !== "grok") return c.json({ error: "Unknown service." }, 404);
+  const qa = await aiQuota(c.get("user").id, c.get("isAdmin"));
+  if (!qa.ok) return c.json({ error: qa.error }, 429);
+  const { geminiChat, grokChat } = await import("./integrations");
+  const body = await c.req.json().catch(() => ({}));
+  const prompt = clean(String(body.prompt || ""), 8000).trim();
+  if (!prompt) return c.json({ error: "Enter a message." }, 400);
+  try {
+    const reply = service === "gemini" ? await geminiChat(prompt) : await grokChat(prompt);
+    return c.json({ reply });
+  } catch (e: any) { return c.json({ error: e.message || "Chat failed." }, 502); }
+});
+
+/* ---------- AI Tools hub: subscription tracker ---------- */
+keystone.get("/api/ai-subscriptions", requireUser, async (c) => {
+  const userId = c.get("user").id;
+  const rows = await db.select().from(aiSubscriptions).where(eq(aiSubscriptions.userId, userId)).orderBy(aiSubscriptions.renewalDate);
+  const now = Date.now(), day = 86400000;
+  return c.json({ subscriptions: rows.map((r) => ({
+    ...r,
+    daysUntil: r.renewalDate ? Math.ceil((r.renewalDate - now) / day) : null,
+    urgent: !!r.renewalDate && r.status === "active" && (r.renewalDate - now) < 7 * day,
+  })) });
+});
+keystone.post("/api/ai-subscriptions", requireUser, async (c) => {
+  const userId = c.get("user").id;
+  const body = await c.req.json().catch(() => ({}));
+  const serviceName = clean(String(body.serviceName || ""), 60).trim();
+  if (!serviceName) return c.json({ error: "Name the service." }, 400);
+  const [row] = await db.insert(aiSubscriptions).values({
+    userId, serviceName,
+    planName: clean(String(body.planName || ""), 60) || null,
+    costCents: Math.max(0, parseInt(body.costCents) || 0),
+    currency: clean(String(body.currency || "USD"), 8),
+    billingCycle: ["monthly", "yearly", "one_time", "trial"].includes(body.billingCycle) ? body.billingCycle : "monthly",
+    renewalDate: body.renewalDate ? new Date(body.renewalDate).getTime() : null,
+    trialEnds: body.trialEnds ? new Date(body.trialEnds).getTime() : null,
+    cancelUrl: clean(String(body.cancelUrl || ""), 500) || null,
+    notes: clean(String(body.notes || ""), 500) || null,
+    status: "active", createdAt: Date.now(),
+  }).returning();
+  return c.json({ subscription: row });
+});
+keystone.delete("/api/ai-subscriptions/:id", requireUser, async (c) => {
+  const userId = c.get("user").id;
+  await db.delete(aiSubscriptions).where(and(eq(aiSubscriptions.id, Number(c.req.param("id"))), eq(aiSubscriptions.userId, userId)));
+  return c.json({ ok: true });
+});
+keystone.post("/api/ai-subscriptions/:id/cancel", requireUser, async (c) => {
+  const userId = c.get("user").id;
+  await db.update(aiSubscriptions).set({ status: "canceled" })
+    .where(and(eq(aiSubscriptions.id, Number(c.req.param("id"))), eq(aiSubscriptions.userId, userId)));
+  return c.json({ ok: true });
 });
 
 async function syncSubscription(sub: Stripe.Subscription) {
