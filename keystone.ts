@@ -340,17 +340,92 @@ async function setSetting(userId: string, key: string, value: string) {
 keystone.get("/api/settings", requireUser, async (c) => {
   const userId = c.get("user").id;
   const name = await getSetting(userId, "assistant_name");
-  return c.json({ assistantName: name || "Assistant" });
+  const personality = await getSetting(userId, "assistant_personality");
+  const character = await getSetting(userId, "assistant_character");
+  const filter = await getSetting(userId, "assistant_filter");
+  const avatar = await getSetting(userId, "assistant_avatar");
+  return c.json({
+    assistantName: name || "Assistant",
+    personality: personality || "",
+    character: character || "",
+    filter: filter || "clean",
+    hasAvatar: !!avatar,
+  });
 });
 
 keystone.post("/api/settings", requireUser, async (c) => {
   const body = await c.req.json().catch(() => ({}));
+  const userId = c.get("user").id;
   const name = clean(String(body.assistantName || ""), 30).trim();
   if (!name) return c.json({ error: "Give your assistant a name." }, 400);
   if (!/^[a-zA-Z0-9 '\-]{2,30}$/.test(name)) return c.json({ error: "Names can use letters, numbers, spaces, hyphens and apostrophes (2-30 characters)." }, 400);
-  await setSetting(c.get("user").id, "assistant_name", name);
-  return c.json({ assistantName: name });
+  await setSetting(userId, "assistant_name", name);
+  // Personality: free-text description (max 2000 chars)
+  const personality = clean(String(body.personality || ""), 2000).trim();
+  await setSetting(userId, "assistant_personality", personality);
+  // Character to roleplay (max 100 chars)
+  const character = clean(String(body.character || ""), 100).trim();
+  await setSetting(userId, "assistant_character", character);
+  // Filter level: clean | raw
+  const filter = body.filter === "raw" ? "raw" : "clean";
+  await setSetting(userId, "assistant_filter", filter);
+  return c.json({ assistantName: name, personality, character, filter });
 });
+
+/* Avatar upload: custom assistant avatar image */
+const AVATAR_DIR = "avatars";
+if (!fs.existsSync(AVATAR_DIR)) fs.mkdirSync(AVATAR_DIR, { recursive: true });
+keystone.post("/api/settings/avatar", requireUser, async (c) => {
+  const userId = c.get("user").id;
+  const body = await c.req.parseBody().catch(() => ({}));
+  const file: any = body.avatar;
+  if (!file || typeof file === "string") return c.json({ error: "Choose an image file." }, 400);
+  const buf = Buffer.from(await file.arrayBuffer());
+  if (buf.length > 2 * 1024 * 1024) return c.json({ error: "Image must be under 2MB." }, 400);
+  const type = String(file.type || "");
+  if (!type.startsWith("image/")) return c.json({ error: "File must be an image." }, 400);
+  const ext = type.includes("png") ? "png" : type.includes("webp") ? "webp" : "jpg";
+  const fname = `${userId}.${ext}`;
+  fs.writeFileSync(path.join(AVATAR_DIR, fname), buf);
+  await setSetting(userId, "assistant_avatar", fname);
+  return c.json({ ok: true, avatarUrl: `/api/settings/avatar/img` });
+});
+keystone.get("/api/settings/avatar/img", requireUser, async (c) => {
+  const fname = await getSetting(c.get("user").id, "assistant_avatar");
+  if (!fname) return c.json({ error: "No avatar" }, 404);
+  const fp = path.join(AVATAR_DIR, path.basename(fname));
+  if (!fs.existsSync(fp)) return c.json({ error: "No avatar" }, 404);
+  const ext = path.extname(fp).toLowerCase();
+  const ct = ext === ".png" ? "image/png" : ext === ".webp" ? "image/webp" : "image/jpeg";
+  return new Response(fs.readFileSync(fp), { headers: { "Content-Type": ct, "Cache-Control": "public, max-age=3600" } });
+});
+keystone.delete("/api/settings/avatar", requireUser, async (c) => {
+  const userId = c.get("user").id;
+  const fname = await getSetting(userId, "assistant_avatar");
+  if (fname) { try { fs.unlinkSync(path.join(AVATAR_DIR, path.basename(fname))); } catch {} }
+  await setSetting(userId, "assistant_avatar", "");
+  return c.json({ ok: true });
+});
+
+/** Build the personality injection for the AI prompt from user settings. */
+async function buildPersonality(userId: string): Promise<string> {
+  const [character, personality, filter] = await Promise.all([
+    getSetting(userId, "assistant_character"),
+    getSetting(userId, "assistant_personality"),
+    getSetting(userId, "assistant_filter"),
+  ]);
+  let extra = "";
+  if (character) {
+    extra += `\n\nCHARACTER ROLEPLAY: The user wants you to talk like ${character}. Capture their voice — their humor, their mannerisms, their attitude, their way of talking. Stay in character in every reply, but never break character to mention you're roleplaying unless asked. You are still helpful and get things done; you just do it AS ${character}.`;
+  }
+  if (personality) {
+    extra += `\n\nYOUR PERSONALITY (the user described how they want you to be — follow this): ${personality}`;
+  }
+  if (filter === "raw") {
+    extra += `\n\nTONE: RAW/UNFILTERED. The user wants you unfiltered — profanity, roasts, edgy humor, and blunt takes are all fine. Talk like a real person with no corporate filter. Hard limits that NEVER lift: no hate speech, no harassment of real private individuals, no sexual content involving minors, nothing that helps people get hurt. Everything else — let it fly.`;
+  }
+  return extra;
+}
 
 /* ---------- AI Tools hub: integrations ---------- */
 keystone.get("/api/integrations", requireUser, async (c) => {
@@ -1720,7 +1795,8 @@ keystone.post("/api/assistant/chat", requireUser, requireSub, async (c) => {
 
   const callAnthropic = async (msgs: any[]) => {
     const aName = await getSetting(user.id, "assistant_name") || "Assistant";
-    const sysPrompt = `Your name is ${aName}. The user named you this — always introduce yourself as ${aName} and sign off as ${aName} when natural.\n\n${ASSISTANT_SYSTEM}`;
+    const personality = await buildPersonality(user.id);
+    const sysPrompt = `Your name is ${aName}. The user named you this — always introduce yourself as ${aName} and sign off as ${aName} when natural.\n\n${ASSISTANT_SYSTEM}${personality}`;
     const r = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: { "x-api-key": process.env.ANTHROPIC_API_KEY!, "anthropic-version": "2023-06-01", "content-type": "application/json" },
@@ -1852,7 +1928,8 @@ keystone.post("/api/assistant/agent", requireUser, requireSub, async (c) => {
         const q = await aiQuota(user.id, c.get("isAdmin"));
         if (!q.ok) throw { status: 429, error: q.error };
         const aName = await getSetting(user.id, "assistant_name") || "Assistant";
-        const sysPrompt = `Your name is ${aName}. The user named you this — refer to yourself as ${aName}.\n\n${AGENT_SYSTEM}`;
+        const personality = await buildPersonality(user.id);
+        const sysPrompt = `Your name is ${aName}. The user named you this — refer to yourself as ${aName}.\n\n${AGENT_SYSTEM}${personality}`;
         const r = await fetch("https://api.anthropic.com/v1/messages", {
           method: "POST",
           headers: { "x-api-key": process.env.ANTHROPIC_API_KEY!, "anthropic-version": "2023-06-01", "content-type": "application/json" },

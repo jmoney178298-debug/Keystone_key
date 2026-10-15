@@ -136,7 +136,28 @@ function welcomeHtml(){
 }
 function vAssist(){
   return `<div class="fade"><h1>${esc(ASSISTANT_NAME)}</h1>
-  <p class="sub">Your personal AI — chat, build funnels that generate leads, create websites and apps, manage leads. <a href="javascript:void(0)" onclick="renameAssistant()" style="color:var(--lime)">Rename</a></p>
+  <p class="sub">Your personal AI — chat, build funnels that generate leads, create websites and apps, manage leads.</p>
+  <div class="card" style="border-color:var(--lime)"><b>🎭 Personality</b><p class="sub">Make ${esc(ASSISTANT_NAME)} yours — name, face, voice, and attitude.</p>
+  <div style="display:grid;gap:10px;margin-top:10px">
+    <div class="row" style="gap:12px;align-items:center">
+      <img id="avatarPrev" src="/api/settings/avatar/img" onerror="this.style.display='none'" style="width:56px;height:56px;border-radius:50%;object-fit:cover;border:2px solid var(--lime)">
+      <div style="display:grid;gap:6px;flex:1">
+        <div class="row" style="gap:8px"><input type="file" id="avatarFile" accept="image/*" style="flex:1;background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:8px;color:var(--txt);font-size:12px"><button class="btn" onclick="uploadAvatar()">Upload</button></div>
+        <button class="btn ghost" style="font-size:12px" onclick="removeAvatar()">Remove custom avatar</button>
+      </div>
+    </div>
+    <div class="row" style="gap:8px;flex-wrap:wrap">
+      <input id="pName" placeholder="Name (e.g. Deadpool)" maxlength="30" style="flex:1;min-width:140px;background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px;color:var(--txt)">
+      <input id="pChar" placeholder="Talk like... (e.g. Deadpool, Tony Stark)" maxlength="100" style="flex:2;min-width:180px;background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px;color:var(--txt)">
+    </div>
+    <textarea id="pPersonality" placeholder="Describe how you want your AI to be... (e.g. 'A sarcastic genius who roasts my bad ideas but always helps me win. Treats me like a friend, not a customer.')" maxlength="2000" style="min-height:70px;background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px;color:var(--txt)"></textarea>
+    <div class="row" style="gap:8px;align-items:center">
+      <span class="sub">Tone:</span>
+      <select id="pFilter" style="background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px;color:var(--txt)"><option value="clean">Clean</option><option value="raw">Raw / unfiltered</option></select>
+      <button class="btn lime" onclick="savePersonality()">Save personality</button>
+    </div>
+    <p class="sub" style="font-size:11px">Raw lets it swear, roast, and talk freely — like a real person with no filter. It still won't do hate, harassment, or harm. Ever.</p>
+  </div></div>
   <div class="row" style="margin-bottom:12px">
     <button class="btn ${assistMode=='chat'?'lime':'ghost'}" onclick="setAssistMode('chat')">Chat</button>
     <button class="btn ${assistMode=='agent'?'lime':'ghost'}" onclick="setAssistMode('agent')">Agent mode</button>
@@ -514,7 +535,7 @@ async function ideaStatus(id,status){await fetch('/api/admin/ideas/'+id+'/status
 function render(){
   renderSide();
   $('#main').innerHTML=({assist:vAssist,funnels:vFunnels,videos:vVideos,studio:vStudio,tools:vTools,aff:vAff,bill:vBill,admin:vAdmin})[view]();
-  if(view=='assist'){renderArtifact();const l=$('#chatlog');if(l)l.scrollTop=l.scrollHeight}
+  if(view=='assist'){renderArtifact();fillPersonality();const l=$('#chatlog');if(l)l.scrollTop=l.scrollHeight}
   if(view=='funnels')funLoad();
   if(view=='videos')vidLoad();
   if(view=='studio'){studioLoad();clipLoad();}
@@ -535,11 +556,23 @@ function render(){
 
 /* ---------- Assistant naming + presence ---------- */
 let ASSISTANT_NAME='Assistant';
-async function loadAssistantName(){try{const r=await api('/api/settings');if(r.ok&&r.data.assistantName){ASSISTANT_NAME=r.data.assistantName;updatePresence()}}catch(e){}}
+let ASSISTANT_PERSONALITY={personality:'',character:'',filter:'clean',hasAvatar:false};
+async function loadAssistantName(){try{const r=await api('/api/settings');if(r.ok){if(r.data.assistantName){ASSISTANT_NAME=r.data.assistantName}ASSISTANT_PERSONALITY={personality:r.data.personality||'',character:r.data.character||'',filter:r.data.filter||'clean',hasAvatar:!!r.data.hasAvatar};updatePresence();fillPersonality()}}catch(e){}}
+function fillPersonality(){const n=document.getElementById('pName');if(!n)return;n.value=ASSISTANT_NAME=='Assistant'?'':ASSISTANT_NAME;document.getElementById('pChar').value=ASSISTANT_PERSONALITY.character;document.getElementById('pPersonality').value=ASSISTANT_PERSONALITY.personality;document.getElementById('pFilter').value=ASSISTANT_PERSONALITY.filter;const av=document.getElementById('avatarPrev');if(av){av.style.display=ASSISTANT_PERSONALITY.hasAvatar?'':'none';if(ASSISTANT_PERSONALITY.hasAvatar)av.src='/api/settings/avatar/img?'+Date.now()}}
+async function savePersonality(){
+  const name=document.getElementById('pName').value.trim()||'Assistant';
+  const r=await api('/api/settings',{assistantName:name,personality:document.getElementById('pPersonality').value,character:document.getElementById('pChar').value,filter:document.getElementById('pFilter').value});
+  if(r.ok){ASSISTANT_NAME=r.data.assistantName;ASSISTANT_PERSONALITY={personality:r.data.personality,character:r.data.character,filter:r.data.filter,hasAvatar:ASSISTANT_PERSONALITY.hasAvatar};updatePresence();render();toast('Personality saved — '+ASSISTANT_NAME+' is ready.')}
+  else toast(r.data.error||'Could not save.')
+}
+async function uploadAvatar(){const f=document.getElementById('avatarFile').files[0];if(!f){toast('Choose an image first.');return}if(f.size>2*1024*1024){toast('Image must be under 2MB.');return}const fd=new FormData();fd.append('avatar',f);toast('Uploading...');const r=await fetch('/api/settings/avatar',{method:'POST',body:fd,credentials:'include'});const j=await r.json().catch(()=>({}));if(r.ok){ASSISTANT_PERSONALITY.hasAvatar=true;updatePresence();fillPersonality();toast('Avatar updated!')}else toast(j.error||'Upload failed.')}
+async function removeAvatar(){const r=await api('/api/settings/avatar',null,'DELETE');if(r.ok){ASSISTANT_PERSONALITY.hasAvatar=false;updatePresence();fillPersonality();toast('Avatar removed.')}}
 function updatePresence(){
   const p=document.getElementById('presence');if(!p)return;
   p.style.display=signedIn?'flex':'none';
   document.getElementById('presenceName').textContent=ASSISTANT_NAME;
+  const av=document.getElementById('presenceAvatar');
+  if(av){av.innerHTML=ASSISTANT_PERSONALITY.hasAvatar?`<img src="/api/settings/avatar/img?${Date.now()}" style="width:36px;height:36px;border-radius:50%;object-fit:cover">`:`<svg width="36" height="36" viewBox="0 0 48 48"><rect width="48" height="48" rx="12" fill="#161c22"/><path d="M10 33 L24 11 L38 33" stroke="#ff4f33" stroke-width="6.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/><circle cx="24" cy="36" r="3.2" fill="#ff4f33"/></svg>`}
   restorePresencePos();
 }
 /* Draggable presence bar — position saved per user */
