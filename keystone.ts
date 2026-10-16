@@ -344,12 +344,14 @@ keystone.get("/api/settings", requireUser, async (c) => {
   const character = await getSetting(userId, "assistant_character");
   const filter = await getSetting(userId, "assistant_filter");
   const avatar = await getSetting(userId, "assistant_avatar");
+  const voice = await getSetting(userId, "assistant_voice");
   return c.json({
     assistantName: name || "Assistant",
     personality: personality || "",
     character: character || "",
     filter: filter || "clean",
     hasAvatar: !!avatar,
+    voice: voice || "alloy",
   });
 });
 
@@ -369,7 +371,10 @@ keystone.post("/api/settings", requireUser, async (c) => {
   // Filter level: clean | raw
   const filter = body.filter === "raw" ? "raw" : "clean";
   await setSetting(userId, "assistant_filter", filter);
-  return c.json({ assistantName: name, personality, character, filter });
+  // Voice: one of the OpenAI TTS voices
+  const voice = ["alloy", "echo", "fable", "onyx", "nova", "shimmer"].includes(body.voice) ? body.voice : "alloy";
+  await setSetting(userId, "assistant_voice", voice);
+  return c.json({ assistantName: name, personality, character, filter, voice });
 });
 
 /* Avatar upload: custom assistant avatar image */
@@ -797,6 +802,22 @@ keystone.post("/api/studio/image", requireUser, requireSub, async (c) => {
     const [job] = await db.insert(mediaJobs).values({ userId: c.get("user").id, kind: "image", prompt, status: "done", resultUrl: url }).returning();
     return c.json({ id: job.id, resultUrl: url });
   } catch (e: any) { return c.json({ error: e?.message || "Image generation failed." }, 500); }
+});
+/* Assistant voice: speak any text aloud with the user's chosen assistant voice */
+keystone.post("/api/assistant/speak", requireUser, async (c) => {
+  if (!openaiConfigured()) return c.json({ error: "Voice is not connected yet." }, 503);
+  const q = await aiQuota(c.get("user").id, c.get("isAdmin"));
+  if (!q.ok) return c.json({ error: q.error }, 429);
+  const body = await c.req.json().catch(() => ({}));
+  const text = clean(String(body.text || ""), 4000).trim();
+  if (!text) return c.json({ error: "Nothing to speak." }, 400);
+  // Strip markdown/code fences for cleaner speech
+  const spoken = text.replace(/```[\s\S]*?```/g, " [code omitted] ").replace(/[#*_`~>|]/g, "").replace(/\[([^\]]+)\]\([^)]+\)/g, "$1").slice(0, 4000);
+  try {
+    const voice = (await getSetting(c.get("user").id, "assistant_voice")) || "alloy";
+    const mp3 = await textToSpeech(spoken, voice, 1.0);
+    return new Response(mp3 as any, { headers: { "Content-Type": "audio/mpeg", "Cache-Control": "no-store" } });
+  } catch (e: any) { return c.json({ error: e?.message || "Voice failed." }, 500); }
 });
 keystone.post("/api/studio/tts", requireUser, requireSub, async (c) => {
   if (!openaiConfigured()) return c.json({ error: "Voiceover is not connected yet." }, 503);

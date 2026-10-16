@@ -151,6 +151,11 @@ function vAssist(){
       <input id="pChar" placeholder="Talk like... (e.g. Deadpool, Tony Stark)" maxlength="100" style="flex:2;min-width:180px;background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px;color:var(--txt)">
     </div>
     <textarea id="pPersonality" placeholder="Describe how you want your AI to be... (e.g. 'A sarcastic genius who roasts my bad ideas but always helps me win. Treats me like a friend, not a customer.')" maxlength="2000" style="min-height:70px;background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px;color:var(--txt)"></textarea>
+    <div class="row" style="gap:8px;align-items:center;flex-wrap:wrap">
+      <span class="sub">Voice:</span>
+      <select id="pVoice" style="background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px;color:var(--txt)"><option value="alloy">Alloy</option><option value="echo">Echo</option><option value="fable">Fable</option><option value="onyx">Onyx</option><option value="nova">Nova</option><option value="shimmer">Shimmer</option></select>
+      <button class="btn ghost" onclick="previewVoice()">🔊 Preview voice</button>
+    </div>
     <div class="row" style="gap:8px;align-items:center">
       <span class="sub">Tone:</span>
       <select id="pFilter" style="background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px;color:var(--txt)"><option value="clean">Clean</option><option value="raw">Raw / unfiltered</option></select>
@@ -167,7 +172,7 @@ function vAssist(){
   </div>
   ${assistMode=='chat'?`
   <div class="chips">${CHIPS.map(c=>`<button class="chip" onclick="sendChat('${c.replace(/'/g,"\\'")}')">${esc(c)}</button>`).join('')}</div>
-  <div id="chatlog">${msgs.map(m=>`<div class="msg ${m.role=='user'?'user':'ai'}">${fmtBody(m.content)}</div>`).join('')||welcomeHtml()}</div>
+  <div id="chatlog">${msgs.map((m,i)=>`<div class="msg ${m.role=='user'?'user':'ai'}">${m.role=='assistant'?`<button onclick="speakMsg(${i},this)" title="Listen" style="float:right;background:none;border:none;cursor:pointer;font-size:16px;padding:2px 4px;opacity:.7">🔊</button>`:''}${fmtBody(m.content)}</div>`).join('')||welcomeHtml()}</div>
   <div id="artifact"></div>
   <div class="composer"><textarea id="cin" rows="2" placeholder="Ask anything, or tell me what to build..." onkeydown="if(event.key=='Enter'&&!event.shiftKey){event.preventDefault();sendChat()}"></textarea><button class="btn" id="csend" onclick="sendChat()">Send</button></div>
   `:`
@@ -556,14 +561,43 @@ function render(){
 
 /* ---------- Assistant naming + presence ---------- */
 let ASSISTANT_NAME='Assistant';
-let ASSISTANT_PERSONALITY={personality:'',character:'',filter:'clean',hasAvatar:false};
-async function loadAssistantName(){try{const r=await api('/api/settings');if(r.ok){if(r.data.assistantName){ASSISTANT_NAME=r.data.assistantName}ASSISTANT_PERSONALITY={personality:r.data.personality||'',character:r.data.character||'',filter:r.data.filter||'clean',hasAvatar:!!r.data.hasAvatar};updatePresence();fillPersonality()}}catch(e){}}
-function fillPersonality(){const n=document.getElementById('pName');if(!n)return;n.value=ASSISTANT_NAME=='Assistant'?'':ASSISTANT_NAME;document.getElementById('pChar').value=ASSISTANT_PERSONALITY.character;document.getElementById('pPersonality').value=ASSISTANT_PERSONALITY.personality;document.getElementById('pFilter').value=ASSISTANT_PERSONALITY.filter;const av=document.getElementById('avatarPrev');if(av){av.style.display=ASSISTANT_PERSONALITY.hasAvatar?'':'none';if(ASSISTANT_PERSONALITY.hasAvatar)av.src='/api/settings/avatar/img?'+Date.now()}}
+let ASSISTANT_PERSONALITY={personality:'',character:'',filter:'clean',hasAvatar:false,voice:'alloy'};
+async function loadAssistantName(){try{const r=await api('/api/settings');if(r.ok){if(r.data.assistantName){ASSISTANT_NAME=r.data.assistantName}ASSISTANT_PERSONALITY={personality:r.data.personality||'',character:r.data.character||'',filter:r.data.filter||'clean',hasAvatar:!!r.data.hasAvatar,voice:r.data.voice||'alloy'};updatePresence();fillPersonality()}}catch(e){}}
+function fillPersonality(){const n=document.getElementById('pName');if(!n)return;n.value=ASSISTANT_NAME=='Assistant'?'':ASSISTANT_NAME;document.getElementById('pChar').value=ASSISTANT_PERSONALITY.character;document.getElementById('pPersonality').value=ASSISTANT_PERSONALITY.personality;document.getElementById('pFilter').value=ASSISTANT_PERSONALITY.filter;document.getElementById('pVoice').value=ASSISTANT_PERSONALITY.voice;const av=document.getElementById('avatarPrev');if(av){av.style.display=ASSISTANT_PERSONALITY.hasAvatar?'':'none';if(ASSISTANT_PERSONALITY.hasAvatar)av.src='/api/settings/avatar/img?'+Date.now()}}
 async function savePersonality(){
   const name=document.getElementById('pName').value.trim()||'Assistant';
-  const r=await api('/api/settings',{assistantName:name,personality:document.getElementById('pPersonality').value,character:document.getElementById('pChar').value,filter:document.getElementById('pFilter').value});
-  if(r.ok){ASSISTANT_NAME=r.data.assistantName;ASSISTANT_PERSONALITY={personality:r.data.personality,character:r.data.character,filter:r.data.filter,hasAvatar:ASSISTANT_PERSONALITY.hasAvatar};updatePresence();render();toast('Personality saved — '+ASSISTANT_NAME+' is ready.')}
+  const r=await api('/api/settings',{assistantName:name,personality:document.getElementById('pPersonality').value,character:document.getElementById('pChar').value,filter:document.getElementById('pFilter').value,voice:document.getElementById('pVoice').value});
+  if(r.ok){ASSISTANT_NAME=r.data.assistantName;ASSISTANT_PERSONALITY={personality:r.data.personality,character:r.data.character,filter:r.data.filter,hasAvatar:ASSISTANT_PERSONALITY.hasAvatar,voice:r.data.voice||'alloy'};updatePresence();render();toast('Personality saved — '+ASSISTANT_NAME+' is ready.')}
   else toast(r.data.error||'Could not save.')
+}
+function speakMsg(i,btn){
+  const m=msgs[i];if(!m)return;
+  speakText(m.content,btn);
+}
+let speakingAudio=null;
+async function speakText(text,btn){
+  try{
+    // If already speaking, stop it (toggle off)
+    if(speakingAudio){speakingAudio.pause();speakingAudio=null;document.querySelectorAll('#chatlog button[title="Listen"]').forEach(b=>b.textContent='🔊');const pv=document.querySelector('[onclick="previewVoice()"]');if(pv)pv.innerHTML='🔊 Preview voice';return}
+    if(btn)btn.textContent='⏳';
+    const r=await fetch('/api/assistant/speak',{method:'POST',headers:{'Content-Type':'application/json'},credentials:'include',body:JSON.stringify({text})});
+    if(!r.ok){const j=await r.json().catch(()=>({}));toast(j.error||'Voice failed.');if(btn)btn.textContent='🔊';return}
+    const blob=await r.blob();
+    const url=URL.createObjectURL(blob);
+    speakingAudio=new Audio(url);
+    if(btn)btn.textContent='⏸';
+    const done=()=>{speakingAudio=null;document.querySelectorAll('#chatlog button[title="Listen"]').forEach(b=>b.textContent='🔊');const pv=document.querySelector('[onclick="previewVoice()"]');if(pv)pv.innerHTML='🔊 Preview voice';URL.revokeObjectURL(url)};
+    speakingAudio.onended=done;speakingAudio.onerror=done;
+    speakingAudio.play();
+  }catch(e){toast('Voice failed.');if(btn)btn.textContent='🔊'}
+}
+async function previewVoice(){
+  const v=document.getElementById('pVoice').value;
+  const name=document.getElementById('pName').value.trim()||'your assistant';
+  // Temporarily save the voice so the preview uses it
+  await api('/api/settings',{assistantName:document.getElementById('pName').value.trim()||'Assistant',personality:document.getElementById('pPersonality').value,character:document.getElementById('pChar').value,filter:document.getElementById('pFilter').value,voice:v});
+  ASSISTANT_PERSONALITY.voice=v;
+  speakText(`Hey, I'm ${name}. This is what I sound like.`,document.querySelector('[onclick="previewVoice()"]'));
 }
 async function uploadAvatar(){const f=document.getElementById('avatarFile').files[0];if(!f){toast('Choose an image first.');return}if(f.size>2*1024*1024){toast('Image must be under 2MB.');return}const fd=new FormData();fd.append('avatar',f);toast('Uploading...');const r=await fetch('/api/settings/avatar',{method:'POST',body:fd,credentials:'include'});const j=await r.json().catch(()=>({}));if(r.ok){ASSISTANT_PERSONALITY.hasAvatar=true;updatePresence();fillPersonality();toast('Avatar updated!')}else toast(j.error||'Upload failed.')}
 async function removeAvatar(){const r=await api('/api/settings/avatar',null,'DELETE');if(r.ok){ASSISTANT_PERSONALITY.hasAvatar=false;updatePresence();fillPersonality();toast('Avatar removed.')}}
