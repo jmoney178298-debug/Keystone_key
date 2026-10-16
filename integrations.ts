@@ -121,6 +121,39 @@ export async function elevenlabsTts(text: string, voiceId = "21m00Tcm4TlvDq8ikWA
   return Buffer.from(await r.arrayBuffer());
 }
 
+/** ElevenLabs instant voice cloning. files: array of {buffer, filename}. Returns the new voice_id. */
+export async function elevenlabsAddVoice(name: string, files: Array<{ buffer: Buffer; filename: string }>): Promise<string> {
+  const key = await getServiceKey("elevenlabs");
+  if (!key) throw new Error("ElevenLabs API key not configured. Add it in AI Tools → Integrations.");
+  const form = new FormData();
+  form.append("name", name.slice(0, 60));
+  for (const f of files) {
+    form.append("files", new Blob([f.buffer as any], { type: "audio/mpeg" }), f.filename);
+  }
+  const r = await fetch("https://api.elevenlabs.io/v1/voices/add", {
+    method: "POST",
+    headers: { "xi-api-key": key },
+    body: form as any,
+  });
+  if (!r.ok) {
+    const t = await r.text().catch(() => "");
+    throw new Error(t.includes("verification") || r.status === 422 ? "ElevenLabs needs voice verification for this sample. Try a different recording." : `ElevenLabs error ${r.status}`);
+  }
+  const j: any = await r.json();
+  if (!j.voice_id) throw new Error("Voice cloning failed — no voice ID returned.");
+  return j.voice_id;
+}
+
+/** List the user's ElevenLabs voices (cloned + premade). */
+export async function elevenlabsListVoices(): Promise<Array<{ id: string; name: string }>> {
+  const key = await getServiceKey("elevenlabs");
+  if (!key) throw new Error("ElevenLabs API key not configured. Add it in AI Tools → Integrations.");
+  const r = await fetch("https://api.elevenlabs.io/v1/voices", { headers: { "xi-api-key": key } });
+  if (!r.ok) throw new Error(`ElevenLabs error ${r.status}`);
+  const j: any = await r.json();
+  return (j.voices || []).map((v: any) => ({ id: v.voice_id, name: v.name }));
+}
+
 /** Google Gemini chat. */
 export async function geminiChat(prompt: string, system?: string): Promise<string> {
   const key = await getServiceKey("gemini");

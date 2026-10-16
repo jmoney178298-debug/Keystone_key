@@ -345,12 +345,14 @@ keystone.get("/api/settings", requireUser, async (c) => {
   const filter = await getSetting(userId, "assistant_filter");
   const avatar = await getSetting(userId, "assistant_avatar");
   const voice = await getSetting(userId, "assistant_voice");
+  const voiceProvider = await getSetting(userId, "assistant_voice_provider");
   return c.json({
     assistantName: name || "Assistant",
     personality: personality || "",
     character: character || "",
     filter: filter || "clean",
     hasAvatar: !!avatar,
+    voiceProvider: voiceProvider || "openai",
     voice: voice || "alloy",
   });
 });
@@ -371,10 +373,14 @@ keystone.post("/api/settings", requireUser, async (c) => {
   // Filter level: clean | raw
   const filter = body.filter === "raw" ? "raw" : "clean";
   await setSetting(userId, "assistant_filter", filter);
-  // Voice: one of the OpenAI TTS voices
-  const voice = ["alloy", "echo", "fable", "onyx", "nova", "shimmer"].includes(body.voice) ? body.voice : "alloy";
+  // Voice provider + voice: openai stock voices, or elevenlabs cloned/premade voices
+  const vprovider = body.voiceProvider === "elevenlabs" ? "elevenlabs" : "openai";
+  await setSetting(userId, "assistant_voice_provider", vprovider);
+  const voice = vprovider === "elevenlabs"
+    ? clean(String(body.voice || ""), 64).trim() || "21m00Tcm4TlvDq8ikWAM"
+    : (["alloy", "echo", "fable", "onyx", "nova", "shimmer"].includes(body.voice) ? body.voice : "alloy");
   await setSetting(userId, "assistant_voice", voice);
-  return c.json({ assistantName: name, personality, character, filter, voice });
+  return c.json({ assistantName: name, personality, character, filter, voiceProvider: vprovider, voice });
 });
 
 /* Avatar upload: custom assistant avatar image */
@@ -805,19 +811,58 @@ keystone.post("/api/studio/image", requireUser, requireSub, async (c) => {
 });
 /* Assistant voice: speak any text aloud with the user's chosen assistant voice */
 keystone.post("/api/assistant/speak", requireUser, async (c) => {
-  if (!openaiConfigured()) return c.json({ error: "Voice is not connected yet." }, 503);
   const q = await aiQuota(c.get("user").id, c.get("isAdmin"));
   if (!q.ok) return c.json({ error: q.error }, 429);
   const body = await c.req.json().catch(() => ({}));
-  const text = clean(String(body.text || ""), 4000).trim();
+  const text = clean(String(body.text || ""), 5000).trim();
   if (!text) return c.json({ error: "Nothing to speak." }, 400);
   // Strip markdown/code fences for cleaner speech
-  const spoken = text.replace(/```[\s\S]*?```/g, " [code omitted] ").replace(/[#*_`~>|]/g, "").replace(/\[([^\]]+)\]\([^)]+\)/g, "$1").slice(0, 4000);
+  const spoken = text.replace(/```[\s\S]*?```/g, " [code omitted] ").replace(/[#*_`~>|]/g, "").replace(/\[([^\]]+)\]\([^)]+\)/g, "$1").slice(0, 5000);
   try {
+    const provider = (await getSetting(c.get("user").id, "assistant_voice_provider")) || "openai";
     const voice = (await getSetting(c.get("user").id, "assistant_voice")) || "alloy";
-    const mp3 = await textToSpeech(spoken, voice, 1.0);
+    let mp3: Buffer;
+    if (provider === "elevenlabs") {
+      const { elevenlabsTts } = await import("./integrations");
+      mp3 = await elevenlabsTts(spoken, voice);
+    } else {
+      if (!openaiConfigured()) return c.json({ error: "Voice is not connected yet." }, 503);
+      mp3 = await textToSpeech(spoken, voice, 1.0);
+    }
     return new Response(mp3 as any, { headers: { "Content-Type": "audio/mpeg", "Cache-Control": "no-store" } });
   } catch (e: any) { return c.json({ error: e?.message || "Voice failed." }, 500); }
+});
+
+/* List the user's ElevenLabs voices (cloned + premade) for the assistant voice picker */
+keystone.get("/api/assistant/voices", requireUser, async (c) => {
+  try {
+    const { elevenlabsListVoices } = await import("./integrations");
+    return c.json({ voices: await elevenlabsListVoices() });
+  } catch (e: any) { return c.json({ error: e?.message || "Could not load voices." }, 503); }
+});
+
+/* Clone a voice from uploaded audio samples (ElevenLabs instant voice cloning) */
+keystone.post("/api/assistant/voice/clone", requireUser, async (c) => {
+  const body = await c.req.parseBody().catch(() => ({}));
+  const name = clean(String(body.name || ""), 60).trim() || "My Voice";
+  const raw: any[] = Array.isArray(body.files) ? body.files : (body.files ? [body.files] : []);
+  const files: Array<{ buffer: Buffer; filename: string }> = [];
+  for (const f of raw) {
+    if (!f || typeof f === "string") continue;
+    const type = String(f.type || "");
+    if (!type.startsWith("audio/") && !/\.(mp3|wav|m4a|ogg|webm)$/i.test(String(f.name || ""))) continue;
+    const buf = Buffer.from(await f.arrayBuffer());
+    if (buf.length > 25 * 1024 * 1024) continue;
+    if (buf.length > 0) files.push({ buffer: buf, filename: String(f.name || "sample.mp3") });
+  }
+  if (files.length === 0) return c.json({ error: "Upload 1–3 clear audio clips (MP3/WAV, under 25MB each)." }, 400);
+  try {
+    const { elevenlabsAddVoice } = await import("./integrations");
+    const voiceId = await elevenlabsAddVoice(name, files);
+    await setSetting(c.get("user").id, "assistant_voice_provider", "elevenlabs");
+    await setSetting(c.get("user").id, "assistant_voice", voiceId);
+    return c.json({ ok: true, voiceId, name });
+  } catch (e: any) { return c.json({ error: e?.message || "Voice cloning failed." }, 500); }
 });
 keystone.post("/api/studio/tts", requireUser, requireSub, async (c) => {
   if (!openaiConfigured()) return c.json({ error: "Voiceover is not connected yet." }, 503);
