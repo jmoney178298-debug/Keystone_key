@@ -121,14 +121,14 @@ export async function elevenlabsTts(text: string, voiceId = "21m00Tcm4TlvDq8ikWA
   return Buffer.from(await r.arrayBuffer());
 }
 
-/** ElevenLabs instant voice cloning. files: array of {buffer, filename}. Returns the new voice_id. */
-export async function elevenlabsAddVoice(name: string, files: Array<{ buffer: Buffer; filename: string }>): Promise<string> {
+/** ElevenLabs instant voice cloning. files: array of {buffer, filename, type}. Returns the new voice_id. */
+export async function elevenlabsAddVoice(name: string, files: Array<{ buffer: Buffer; filename: string; type?: string }>): Promise<string> {
   const key = await getServiceKey("elevenlabs");
   if (!key) throw new Error("ElevenLabs API key not configured. Add it in AI Tools → Integrations.");
   const form = new FormData();
   form.append("name", name.slice(0, 60));
   for (const f of files) {
-    form.append("files", new Blob([f.buffer as any], { type: "audio/mpeg" }), f.filename);
+    form.append("files", new Blob([f.buffer as any], { type: f.type || "audio/mpeg" }), f.filename);
   }
   const r = await fetch("https://api.elevenlabs.io/v1/voices/add", {
     method: "POST",
@@ -137,7 +137,13 @@ export async function elevenlabsAddVoice(name: string, files: Array<{ buffer: Bu
   });
   if (!r.ok) {
     const t = await r.text().catch(() => "");
-    throw new Error(t.includes("verification") || r.status === 422 ? "ElevenLabs needs voice verification for this sample. Try a different recording." : `ElevenLabs error ${r.status}`);
+    let detail = "";
+    try {
+      const j: any = JSON.parse(t);
+      detail = typeof j?.detail === "string" ? j.detail : j?.detail?.message || j?.message || "";
+    } catch { /* non-JSON error body */ }
+    if (/verif/i.test(t + detail)) throw new Error("ElevenLabs needs voice verification for this sample. Try a different recording.");
+    throw new Error(detail ? `ElevenLabs: ${detail}` : `ElevenLabs error ${r.status}`);
   }
   const j: any = await r.json();
   if (!j.voice_id) throw new Error("Voice cloning failed — no voice ID returned.");

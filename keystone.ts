@@ -846,14 +846,23 @@ keystone.post("/api/assistant/voice/clone", requireUser, async (c) => {
   const body = await c.req.parseBody().catch(() => ({}));
   const name = clean(String(body.name || ""), 60).trim() || "My Voice";
   const raw: any[] = Array.isArray(body.files) ? body.files : (body.files ? [body.files] : []);
-  const files: Array<{ buffer: Buffer; filename: string }> = [];
+  const files: Array<{ buffer: Buffer; filename: string; type: string }> = [];
   for (const f of raw) {
     if (!f || typeof f === "string") continue;
-    const type = String(f.type || "");
-    if (!type.startsWith("audio/") && !/\.(mp3|wav|m4a|ogg|webm)$/i.test(String(f.name || ""))) continue;
+    const fname = String(f.name || "sample.mp3");
+    let type = String(f.type || "");
+    // Pass the real audio type through — ElevenLabs rejects files mislabeled as MP3
+    if (!type.startsWith("audio/")) {
+      if (/\.m4a$/i.test(fname)) type = "audio/mp4";
+      else if (/\.wav$/i.test(fname)) type = "audio/wav";
+      else if (/\.ogg$/i.test(fname)) type = "audio/ogg";
+      else if (/\.webm$/i.test(fname)) type = "audio/webm";
+      else type = "audio/mpeg";
+    }
+    if (!type.startsWith("audio/") && !/\.(mp3|wav|m4a|ogg|webm)$/i.test(fname)) continue;
     const buf = Buffer.from(await f.arrayBuffer());
     if (buf.length > 25 * 1024 * 1024) continue;
-    if (buf.length > 0) files.push({ buffer: buf, filename: String(f.name || "sample.mp3") });
+    if (buf.length > 0) files.push({ buffer: buf, filename: fname, type });
   }
   if (files.length === 0) return c.json({ error: "Upload 1–3 clear audio clips (MP3/WAV, under 25MB each)." }, 400);
   try {
