@@ -10,7 +10,7 @@ import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import Stripe from "stripe";
 import crypto from "node:crypto";
 import { db, sqlite } from "./db";
-import { auth } from "./auth";
+import { auth, enabledSocialProviders } from "./auth";
 import { affiliates, aiSubscriptions, aiUsage, assistantConversations, assistantMessages, blgPosts, contentJobs, funnels, funnelLeads, ideas, integrationKeys, leads, lifetimeAccess, limitHits, mediaJobs, partnerAccess, prospects, referrals, stripeEvents, subscriptions, trialIps, userSettings, videoJobs } from "./schema";
 import { blgConfigured, blgGetArticle, blgListArticles, blgSyncArticles, blgUpsertArticle } from "./blg";
 import { heygenConfigured, heygenGenerateVideo, heygenVideoStatus } from "./heygen";
@@ -310,6 +310,11 @@ keystone.get("/api/blg/articles/:id", requireUser, async (c) => {
   } catch (e: any) {
     return c.json({ configured: blgConfigured(), error: e?.message || "Failed to fetch article." }, 502);
   }
+});
+
+/** Public: which social login buttons the landing page should show (env-gated). */
+keystone.get("/api/auth/providers", async (c) => {
+  return c.json({ providers: enabledSocialProviders() });
 });
 
 keystone.get("/api/billing/status", requireUser, async (c) => {  const [s] = await db.select().from(subscriptions).where(eq(subscriptions.userId, c.get("user").id));

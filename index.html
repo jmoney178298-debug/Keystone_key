@@ -318,11 +318,30 @@ input:focus,textarea:focus,select:focus{outline:2px solid var(--accent);border-c
 <div class="wrap sec-view" id="login" style="padding:80px 0"><div class="auth-box">
   <h2 id="ltitle" style="text-align:center">Sign in</h2>
   <div class="auth-card">
+    <div id="socialRow" style="display:none;margin-bottom:14px"><div id="socialBtns" style="display:grid;gap:8px"></div><div style="display:flex;align-items:center;gap:10px;margin:14px 0;color:var(--stone);font-size:12px"><span style="flex:1;border-top:1px solid var(--line)"></span>or with email<span style="flex:1;border-top:1px solid var(--line)"></span></div></div>
     <div id="nameRow" style="display:none"><label for="n">Name</label><input id="n" autocomplete="name"></div>
     <label for="e">Email</label><input id="e" type="email" autocomplete="email">
     <label for="p">Password (10+ characters)</label><input id="p" type="password" autocomplete="current-password" onkeydown="if(event.key=='Enter')go()">
     <div id="msg" role="alert"></div>
     <div class="row" style="margin-top:6px"><button class="btn btn-acc" style="flex:1" onclick="go()" id="gobtn">Sign in</button><button class="btn btn-ghost" onclick="toggle()" id="tbtn">Create account</button></div>
+    <div style="text-align:center;margin-top:10px"><a href="#forgot" onclick="show('forgot');return false" style="color:var(--stone);font-size:13px">Forgot your password?</a></div>
+  </div>
+</div></div>
+<div class="wrap sec-view" id="forgot" style="padding:80px 0"><div class="auth-box">
+  <h2 style="text-align:center">Reset password</h2>
+  <div class="auth-card">
+    <p style="color:var(--stone);font-size:14px;text-align:center">Enter your account email and we'll send you a reset link (valid 1 hour).</p>
+    <label for="fe">Email</label><input id="fe" type="email" autocomplete="email" onkeydown="if(event.key=='Enter')sendReset()">
+    <div id="fmsg" role="alert"></div>
+    <div class="row" style="margin-top:6px"><button class="btn btn-acc" style="flex:1" onclick="sendReset()">Send reset link</button><button class="btn btn-ghost" onclick="location.hash='login';show('login')">Back</button></div>
+  </div>
+</div></div>
+<div class="wrap sec-view" id="reset" style="padding:80px 0"><div class="auth-box">
+  <h2 style="text-align:center">Choose a new password</h2>
+  <div class="auth-card">
+    <label for="np">New password (10+ characters)</label><input id="np" type="password" autocomplete="new-password" onkeydown="if(event.key=='Enter')doReset()">
+    <div id="rmsg" role="alert"></div>
+    <div class="row" style="margin-top:6px"><button class="btn btn-acc" style="flex:1" onclick="doReset()">Set new password</button></div>
   </div>
 </div></div>
 <div class="wrap sec-view" id="account" style="padding:80px 0"><div class="auth-box">
@@ -365,9 +384,19 @@ $('#grid').innerHTML=PLANS.map(p=>`<div class="price-card"><h3>${p[1]}</h3><div 
 let signup=false;
 function show(id){document.querySelectorAll('.sec-view').forEach(e=>e.classList.toggle('on',e.id==id));if(id=='account')acct();if(id){const el=document.getElementById(id);if(el)el.scrollIntoView({behavior:'smooth',block:'start'})}}
 function toggleLegal(id){const d=document.getElementById(id);if(d){d.open=!d.open;d.scrollIntoView({behavior:'smooth',block:'center'})}}
-function route(){const h=location.hash.slice(1);if(['login','account'].includes(h))show(h)}addEventListener('hashchange',route);route();
+function route(){const h=location.hash.slice(1);const view=h.split('?')[0];if(['login','account','forgot','reset'].includes(view))show(view);if(view=='reset')primeReset()}addEventListener('hashchange',route);route();
 async function api(path,body){const r=await fetch(path,{method:body?'POST':'GET',headers:{'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined});return{ok:r.ok,status:r.status,data:await r.json().catch(()=>({}))}}
 function toggle(){signup=!signup;$('#nameRow').style.display=signup?'block':'none';$('#ltitle').textContent=signup?'Create account':'Sign in';$('#gobtn').textContent=signup?'Create account':'Sign in';$('#tbtn').textContent=signup?'I have an account':'Create account';$('#msg').textContent=''}
+/* ---------- social sign-in (buttons appear only when the provider is configured server-side) ---------- */
+const SOCIAL_LABEL={google:['G','Continue with Google'],apple:['','Continue with Apple'],facebook:['f','Continue with Facebook'],instagram:['📷','Continue with Instagram']};
+async function loadSocialButtons(){try{const r=await api('/api/auth/providers');const list=(r.ok&&r.data.providers)||[];if(!list.length)return;$('#socialRow').style.display='block';$('#socialBtns').innerHTML=list.map(p=>{const[icon,label]=SOCIAL_LABEL[p]||['',p];return `<button class="btn btn-ghost" style="width:100%;justify-content:center" onclick="socialSignIn('${p}')">${icon?'<b style="margin-right:8px">'+icon+'</b>':''}${label}</button>`}).join('')}catch(e){}}
+async function socialSignIn(p){const provider=p=='instagram'?'facebook':p;try{const r=await api('/api/auth/sign-in/social',{provider,callbackURL:'/app'});if(r.ok&&r.data.url){location.href=r.data.url;return}$('#msg').textContent='Social sign-in is not available right now.'}catch(e){$('#msg').textContent='Could not reach the server.'}}
+/* ---------- forgot / reset password ---------- */
+async function sendReset(){const email=$('#fe').value.trim();$('#fmsg').textContent='';if(!email){$('#fmsg').textContent='Enter your email.';return}try{await api('/api/auth/forget-password',{email});$('#fmsg').textContent='If that email has an account, a reset link is on its way (check spam too).'}catch(e){$('#fmsg').textContent='Could not reach the server. Try again.'}}
+function resetToken(){const m=location.hash.match(/[?&]token=([^&]+)/);return m?decodeURIComponent(m[1]):''}
+function primeReset(){if(!resetToken()){$('#rmsg').textContent='This reset link is missing its token. Request a new one.'}}
+async function doReset(){const token=resetToken(),pw=$('#np').value;$('#rmsg').textContent='';if(!token){$('#rmsg').textContent='Missing reset token.';return}if(!pw||pw.length<10){$('#rmsg').textContent='Password must be at least 10 characters.';return}try{const r=await api('/api/auth/reset-password',{newPassword:pw,token});if(r.ok){$('#rmsg').textContent='Password updated — taking you to sign in…';setTimeout(()=>{location.hash='login';show('login')},1200);return}$('#rmsg').textContent=r.data.message||'That link is invalid or expired. Request a new one.'}catch(e){$('#rmsg').textContent='Could not reach the server. Try again.'}}
+loadSocialButtons();
 function want(p){try{if(p)sessionStorage.setItem('want',p);return sessionStorage.getItem('want')}catch(e){return p}}
 function perr(m){$('#perr').textContent=m||''}
 async function pick(p){want(p);const s=await api('/api/billing/status');if(s.ok)return checkout(p);location.hash='login';show('login')}
