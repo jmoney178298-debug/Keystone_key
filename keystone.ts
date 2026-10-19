@@ -313,7 +313,7 @@ keystone.get("/api/blg/articles/:id", requireUser, async (c) => {
 });
 
 /** Public: which social login buttons the landing page should show (env-gated). */
-keystone.get("/api/auth/providers", async (c) => {
+keystone.get("/api/auth-providers", async (c) => {
   return c.json({ providers: enabledSocialProviders() });
 });
 
