@@ -164,6 +164,22 @@ async function eliteCount(kind: string): Promise<number> {
  *  - Fast track: $25k in the first 90 days — first 5 lock 50% for life.
  * The lock never decays on its own; only the owner can revoke it.
  */
+/** Owner house affiliate: the owner's own affiliate account. Sales and trials that no
+ * other affiliate earned fall to it, so the owner gets paid on every user. */
+const TRIAL_BOUNTY_CENTS = 200; // $2 per free trial started
+async function houseAffiliate(): Promise<typeof affiliates.$inferSelect | null> {
+  if (!OWNER_EMAIL) return null;
+  try {
+    const rows = await db.execute(sql`select id from user where lower(email) = ${OWNER_EMAIL} limit 1`);
+    const ownerId = (rows as any[])[0]?.id;
+    if (!ownerId) return null;
+    const [existing] = await db.select().from(affiliates).where(eq(affiliates.userId, ownerId));
+    if (existing) return existing;
+    const [row] = await db.insert(affiliates).values({ userId: ownerId, code: await uniqueAffCode() }).returning();
+    return row ?? null;
+  } catch { return null; }
+}
+
 async function checkElite(aff: typeof affiliates.$inferSelect): Promise<boolean> {
   if (aff.elite || aff.tier === "partner") return false;
   const rev = await affiliateRevenueCents(aff.id);
@@ -218,7 +234,7 @@ keystone.post("/api/billing/checkout", requireUser, async (c) => {
     line_items: [{ price, quantity: 1 }],
     client_reference_id: user.id,
     metadata: { kind: "subscription", ...(affCode ? { affCode } : {}) },
-    subscription_data: { metadata: { userId: user.id }, ...(trialDays > 0 ? { trial_period_days: trialDays } : {}) },
+    subscription_data: { metadata: { userId: user.id, ...(affCode ? { affCode } : {}) }, ...(trialDays > 0 ? { trial_period_days: trialDays } : {}) },
     allow_promotion_codes: true,
     success_url: `${APP_URL}/app/billing?status=success`,
     cancel_url: `${APP_URL}/app/billing?status=cancelled`,
@@ -790,22 +806,28 @@ keystone.post("/api/stripe/webhook", async (c) => {
         await db.insert(lifetimeAccess).values({ userId: buyerId, stripeCustomerId: cust }).onConflictDoNothing();
       }
     }
-    // Referral commission on any completed purchase (initial sale only), at the referrer's current tier rate.
-    const affCode = (s.metadata as any)?.affCode;
-    if (affCode && buyerId) {
-      const [aff] = await db.select().from(affiliates)
-        .where(and(eq(affiliates.code, affCode), eq(affiliates.status, "active")));
-      if (aff && aff.userId !== buyerId) {
-        const amountCents = s.amount_total ?? 0;
-        if (amountCents > 0) {
-          const rate = await affiliateRateFor(aff);
-          await db.insert(referrals).values({
-            affiliateId: aff.id, userId: buyerId, kind: kind ?? s.mode,
-            amountCents, commissionCents: Math.round(amountCents * rate),
-            stripeEventId: event.id,
-          }).onConflictDoNothing();
-          await checkElite(aff);
-        }
+    // Referral commission on any completed purchase (initial sale only). A referred sale
+    // pays its affiliate at their tier rate; anything else — no referrer, or the buyer
+    // using their own link — falls to the owner's house affiliate, so the owner earns
+    // on every user (the owner's own account always rates 50%, see affiliateRateFor).
+    if (buyerId) {
+      const affCode = (s.metadata as any)?.affCode;
+      let aff: typeof affiliates.$inferSelect | undefined;
+      if (affCode) {
+        [aff] = await db.select().from(affiliates)
+          .where(and(eq(affiliates.code, affCode), eq(affiliates.status, "active")));
+        if (aff && aff.userId === buyerId) aff = undefined;
+      }
+      if (!aff) aff = (await houseAffiliate()) ?? undefined;
+      const amountCents = s.amount_total ?? 0;
+      if (aff && amountCents > 0) {
+        const rate = await affiliateRateFor(aff);
+        await db.insert(referrals).values({
+          affiliateId: aff.id, userId: buyerId, kind: kind ?? s.mode,
+          amountCents, commissionCents: Math.round(amountCents * rate),
+          stripeEventId: event.id,
+        }).onConflictDoNothing();
+        await checkElite(aff);
       }
     }
   } else if (
@@ -815,6 +837,18 @@ keystone.post("/api/stripe/webhook", async (c) => {
   ) {
     const sub = event.data.object as Stripe.Subscription;
     await syncSubscription(sub);
+    // Free trial started: pay the owner's house affiliate a flat bounty for the trial.
+    if (event.type === "customer.subscription.created" && sub.status === "trialing") {
+      const trialBuyerId = (sub.metadata as any)?.userId as string | undefined;
+      const house = await houseAffiliate();
+      if (house && trialBuyerId) {
+        await db.insert(referrals).values({
+          affiliateId: house.id, userId: trialBuyerId, kind: "trial",
+          amountCents: 0, commissionCents: TRIAL_BOUNTY_CENTS,
+          stripeEventId: `trial:${sub.id}`,
+        }).onConflictDoNothing();
+      }
+    }
     // A canceled/ended Partner subscription removes Partner access and drops the affiliate tier.
     if (sub.status === "canceled" || event.type === "customer.subscription.deleted") {
       const [pa] = await db.select().from(partnerAccess).where(eq(partnerAccess.stripeSubscriptionId, sub.id));
@@ -822,6 +856,44 @@ keystone.post("/api/stripe/webhook", async (c) => {
         await db.delete(partnerAccess).where(eq(partnerAccess.userId, pa.userId));
         await db.update(affiliates).set({ tier: "affiliate" }).where(eq(affiliates.userId, pa.userId));
       }
+    }
+  } else if (event.type === "invoice.paid") {
+    // Trial conversions: the checkout session completed at $0 (free trial), so no
+    // commission was paid then. The first real charge pays the referrer — or the
+    // owner's house affiliate when there was none — like any other initial sale.
+    const inv = event.data.object as Stripe.Invoice;
+    const subId = typeof (inv as any).subscription === "string" ? (inv as any).subscription : null;
+    const amountCents = inv.amount_paid ?? 0;
+    if (subId && amountCents > 0) {
+      try {
+        const sub = await stripe.subscriptions.retrieve(subId);
+        const buyerId = (sub.metadata as any)?.userId as string | undefined;
+        if (buyerId) {
+          const [trialRow] = await db.select({ id: referrals.id }).from(referrals)
+            .where(and(eq(referrals.userId, buyerId), eq(referrals.kind, "trial")));
+          const [paidRow] = await db.select({ id: referrals.id }).from(referrals)
+            .where(and(eq(referrals.userId, buyerId), eq(referrals.kind, "subscription")));
+          if (trialRow && !paidRow) {
+            let aff: typeof affiliates.$inferSelect | undefined;
+            const code = (sub.metadata as any)?.affCode as string | undefined;
+            if (code) {
+              [aff] = await db.select().from(affiliates)
+                .where(and(eq(affiliates.code, code), eq(affiliates.status, "active")));
+              if (aff && aff.userId === buyerId) aff = undefined;
+            }
+            if (!aff) aff = (await houseAffiliate()) ?? undefined;
+            if (aff) {
+              const rate = await affiliateRateFor(aff);
+              await db.insert(referrals).values({
+                affiliateId: aff.id, userId: buyerId, kind: "subscription",
+                amountCents, commissionCents: Math.round(amountCents * rate),
+                stripeEventId: event.id,
+              }).onConflictDoNothing();
+              await checkElite(aff);
+            }
+          }
+        }
+      } catch { /* commission bookkeeping must never fail the webhook */ }
     }
   }
   return c.json({ received: true });
