@@ -167,7 +167,12 @@ async function eliteCount(kind: string): Promise<number> {
 /** Owner house affiliate: the owner's own affiliate account. Sales and trials that no
  * other affiliate earned fall to it, so the owner gets paid on every user. */
 const TRIAL_BOUNTY_CENTS = 1000; // $10 to the owner for every free trial started
-const HOUSE_FLAT_CENTS = 5000; // $50 to the owner when a sale has no referrer
+const HOUSE_FLAT_CENTS = 5000; // $50 to the owner on unreferred one-time sales (lifetime/partner)
+/** Unreferred subscription sales pay the owner the plan's full first month —
+ * $25 Basic / $50 Pro / $75 Pro+ — i.e. the amount actually charged. */
+function houseFlatFor(kindKey: string, amountCents: number): number {
+  return kindKey === "subscription" ? amountCents : HOUSE_FLAT_CENTS;
+}
 async function houseAffiliate(): Promise<typeof affiliates.$inferSelect | null> {
   if (!OWNER_EMAIL) return null;
   try {
@@ -811,7 +816,7 @@ keystone.post("/api/stripe/webhook", async (c) => {
     // - A referred sale pays its affiliate at their tier rate — AND pays the owner's
     //   house affiliate a royalty at the owner's 50% rate on the same sale.
     // - A sale with no referrer (or a self-referral) pays the owner's house affiliate
-    //   a flat $50 instead.
+    //   the plan's full first month instead ($25 Basic / $50 Pro / $75 Pro+).
     if (buyerId) {
       const affCode = (s.metadata as any)?.affCode;
       let aff: typeof affiliates.$inferSelect | undefined;
@@ -843,7 +848,7 @@ keystone.post("/api/stripe/webhook", async (c) => {
         } else if (house) {
           await db.insert(referrals).values({
             affiliateId: house.id, userId: buyerId, kind: kindKey,
-            amountCents, commissionCents: HOUSE_FLAT_CENTS,
+            amountCents, commissionCents: houseFlatFor(kindKey, amountCents),
             stripeEventId: event.id,
           }).onConflictDoNothing();
         }
@@ -920,7 +925,7 @@ keystone.post("/api/stripe/webhook", async (c) => {
             } else if (house) {
               await db.insert(referrals).values({
                 affiliateId: house.id, userId: buyerId, kind: "subscription",
-                amountCents, commissionCents: HOUSE_FLAT_CENTS,
+                amountCents, commissionCents: houseFlatFor("subscription", amountCents),
                 stripeEventId: event.id,
               }).onConflictDoNothing();
             }
