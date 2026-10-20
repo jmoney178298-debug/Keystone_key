@@ -121,7 +121,7 @@ function renderSide(){
   showPwaBtn();
 }
 function setView(v){view=(v=='bill'||v=='admin')?v:'chat';artifactTab='preview';render()}
-async function out(){await api('/api/auth/sign-out',{});try{localStorage.removeItem('aiu_chat')}catch(e){}location.href='/'}
+async function out(){chatId=null;msgs=[];artifact=null;try{Object.keys(localStorage).filter(k=>k.indexOf('aiu_')===0).forEach(k=>localStorage.removeItem(k))}catch(e){}await api('/api/auth/sign-out',{});location.href='/'}
 /* Keep the current chat across tab switches and app backgrounding: remember chatId for 30 min. */
 const CHAT_GRACE_MS=30*60*1000;
 function saveChatState(){try{if(chatId)localStorage.setItem('aiu_chat',JSON.stringify({chatId,at:Date.now()}));else localStorage.removeItem('aiu_chat')}catch(e){}}
@@ -157,7 +157,20 @@ function fmtBody(t){
 }
 function welcomeHtml(){
   if((convos||[]).length) return '<div class="msg sys">Say hello — try one of the suggestions above.</div>';
-  return `<div class="msg ai"><b>Hey — I'm ${esc(ASSISTANT_NAME)}, your right hand in here.</b><br><br>Tell me what you want in plain words and I'll get it done while you watch: a <b>lead funnel</b> that captures customers, a <b>spokesperson video ad</b>, <b>images</b> for your marketing, a <b>website or app</b> — or ask about your plan, leads, and referrals.<br><br>Tap a suggestion to see what I can do.</div>`;
+  const hr=new Date().getHours(); const dg=hr<12?'Good morning':hr<18?'Good afternoon':'Good evening';
+  return `<div class="msg ai"><b>${dg} — I'm ${esc(ASSISTANT_NAME)}, your right hand in here.</b><br><br>Tell me what you want in plain words and I'll get it done while you watch: a <b>lead funnel</b> that captures customers, a <b>spokesperson video ad</b>, <b>images</b> for your marketing, a <b>website or app</b> — or ask about your plan, leads, and referrals.<br><br>Tap a suggestion to see what I can do.</div>`;
+}
+async function maybeRitual(){
+  try{
+    if(!ASSISTANT_PERSONALITY.ritualEnabled) return;
+    if(chatId||msgs.length) return;
+    const today=new Date().toLocaleDateString('en-CA');
+    if(localStorage.getItem('aiu_ritualDay')===today) return;
+    localStorage.setItem('aiu_ritualDay',today);
+    const r=await api('/api/assistant/ritual',{date:today,hour:new Date().getHours()});
+    if(r.ok&&r.data&&r.data.text){if(!chatId&&!msgs.length){msgs.push({role:'assistant',content:r.data.text});if(view=='chat')render()}}
+    else{try{localStorage.removeItem('aiu_ritualDay')}catch(e){}}
+  }catch(e){try{localStorage.removeItem('aiu_ritualDay')}catch(_){}}
 }
 function vChat(){
   return `<div class="fade" style="display:flex;flex-direction:column;min-height:calc(100vh - 60px)">
@@ -490,6 +503,17 @@ function openSettings(){
           <div id="cloneStatus" class="sub"></div>
         </div>
       </div>
+      <div class="setsec"><h3>Daily ritual</h3><p class="sub">Start fresh chats with a greeting built for you — in your assistant's voice. Or just ask in chat: "set up a morning ritual for me."</p>
+        <label style="display:flex;gap:8px;align-items:center;font-size:14px;color:var(--txt)"><input type="checkbox" id="pRitualOn" style="width:auto"> Daily greeting ritual</label>
+        <div class="row" style="gap:14px;flex-wrap:wrap;margin-top:8px">
+          <label style="display:flex;gap:6px;align-items:center;font-size:13px;color:var(--txt)"><input type="checkbox" class="pRitualMod" value="quote" style="width:auto"> Inspirational quote</label>
+          <label style="display:flex;gap:6px;align-items:center;font-size:13px;color:var(--txt)"><input type="checkbox" class="pRitualMod" value="outlook" style="width:auto"> Positive outlook</label>
+          <label style="display:flex;gap:6px;align-items:center;font-size:13px;color:var(--txt)"><input type="checkbox" class="pRitualMod" value="bible" style="width:auto"> Bible verse</label>
+          <label style="display:flex;gap:6px;align-items:center;font-size:13px;color:var(--txt)"><input type="checkbox" class="pRitualMod" value="horoscope" style="width:auto"> Horoscope</label>
+          <label style="display:flex;gap:6px;align-items:center;font-size:13px;color:var(--txt)"><input type="checkbox" class="pRitualMod" value="tarot" style="width:auto"> Tarot card</label>
+        </div>
+        <div class="row" style="gap:8px;align-items:center;margin-top:8px"><span class="sub">Zodiac sign:</span><select id="pRitualSign" style="max-width:200px"><option value="">Not set</option><option>Aries</option><option>Taurus</option><option>Gemini</option><option>Cancer</option><option>Leo</option><option>Virgo</option><option>Libra</option><option>Scorpio</option><option>Sagittarius</option><option>Capricorn</option><option>Aquarius</option><option>Pisces</option></select></div>
+      </div>
       <div class="setsec"><h3>Connections</h3><p class="sub">Connect AI services with your own keys.</p><div id="setTools"><div class="card">Loading...</div></div></div>
       <div class="row"><button class="btn lime" onclick="savePersonality().then(()=>{closeSettings();toast('Assistant updated.')})">Save</button></div>
     </div>`;
@@ -531,15 +555,16 @@ function render(){
   const lim=await api('/api/assistant/limits'); if(lim.ok)limits=lim.data;
   await loadAssistantName();
   render(); loadConvos(); restoreChatState();
+  setTimeout(maybeRitual,900);
   const q=new URLSearchParams(location.search).get('billing');
   if(q=='success'||q=='cancelled'){setTimeout(()=>toast(q=='success'?'Payment successful — welcome!':'Checkout was cancelled. No charge was made.'),600);history.replaceState(null,'',location.pathname)}
 })();
 
 /* ---------- Assistant naming + presence ---------- */
 let ASSISTANT_NAME='Assistant';
-let ASSISTANT_PERSONALITY={personality:'',character:'',filter:'clean',hasAvatar:false,voiceProvider:'openai',voice:'alloy'};
-async function loadAssistantName(){try{const r=await api('/api/settings');if(r.ok){if(r.data.assistantName){ASSISTANT_NAME=r.data.assistantName}ASSISTANT_PERSONALITY={personality:r.data.personality||'',character:r.data.character||'',filter:r.data.filter||'clean',hasAvatar:!!r.data.hasAvatar,voiceProvider:r.data.voiceProvider||'openai',voice:r.data.voice||'alloy'};updatePresence();fillPersonality()}}catch(e){}}
-function fillPersonality(){const n=document.getElementById('pName');if(!n)return;n.value=ASSISTANT_NAME=='Assistant'?'':ASSISTANT_NAME;const pp=document.getElementById('pPersonality');if(pp)pp.value=ASSISTANT_PERSONALITY.personality;const pf=document.getElementById('pFilter');if(pf)pf.value=ASSISTANT_PERSONALITY.filter;const pv=document.getElementById('pVoiceProvider');if(pv)pv.value=ASSISTANT_PERSONALITY.voiceProvider;const pvv=document.getElementById('pVoice');if(pvv)pvv.value=ASSISTANT_PERSONALITY.voice;voiceProviderChanged();const av=document.getElementById('avatarPrev');if(av){av.style.display=ASSISTANT_PERSONALITY.hasAvatar?'':'none';if(ASSISTANT_PERSONALITY.hasAvatar)av.src='/api/settings/avatar/img?'+Date.now()}}
+let ASSISTANT_PERSONALITY={personality:'',character:'',filter:'clean',hasAvatar:false,voiceProvider:'openai',voice:'alloy',ritualEnabled:false,ritualModules:[],ritualSign:''};
+async function loadAssistantName(){try{const r=await api('/api/settings');if(r.ok){if(r.data.assistantName){ASSISTANT_NAME=r.data.assistantName}ASSISTANT_PERSONALITY={personality:r.data.personality||'',character:r.data.character||'',filter:r.data.filter||'clean',hasAvatar:!!r.data.hasAvatar,voiceProvider:r.data.voiceProvider||'openai',voice:r.data.voice||'alloy',ritualEnabled:!!r.data.ritualEnabled,ritualModules:r.data.ritualModules||[],ritualSign:r.data.ritualSign||''};updatePresence();fillPersonality()}}catch(e){}}
+function fillPersonality(){const n=document.getElementById('pName');if(!n)return;n.value=ASSISTANT_NAME=='Assistant'?'':ASSISTANT_NAME;const pp=document.getElementById('pPersonality');if(pp)pp.value=ASSISTANT_PERSONALITY.personality;const pf=document.getElementById('pFilter');if(pf)pf.value=ASSISTANT_PERSONALITY.filter;const pv=document.getElementById('pVoiceProvider');if(pv)pv.value=ASSISTANT_PERSONALITY.voiceProvider;const pvv=document.getElementById('pVoice');if(pvv)pvv.value=ASSISTANT_PERSONALITY.voice;const ro=document.getElementById('pRitualOn');if(ro)ro.checked=!!ASSISTANT_PERSONALITY.ritualEnabled;document.querySelectorAll('.pRitualMod').forEach(cb=>{cb.checked=(ASSISTANT_PERSONALITY.ritualModules||[]).includes(cb.value)});const rs=document.getElementById('pRitualSign');if(rs)rs.value=ASSISTANT_PERSONALITY.ritualSign||'';voiceProviderChanged();const av=document.getElementById('avatarPrev');if(av){av.style.display=ASSISTANT_PERSONALITY.hasAvatar?'':'none';if(ASSISTANT_PERSONALITY.hasAvatar)av.src='/api/settings/avatar/img?'+Date.now()}}
 async function voiceProviderChanged(){
   const p=document.getElementById('pVoiceProvider').value;
   document.getElementById('pVoice').style.display=p=='openai'?'':'none';
@@ -584,8 +609,9 @@ async function savePersonality(){
   const name=(document.getElementById('pName')||{}).value||'';
   const vp=(document.getElementById('pVoiceProvider')||{}).value||'openai';
   const v=vp=='elevenlabs'?((document.getElementById('pElVoice')||{}).value||''):((document.getElementById('pVoice')||{}).value||'alloy');
-  const r=await api('/api/settings',{assistantName:name.trim()||'Assistant',personality:(document.getElementById('pPersonality')||{}).value||'',character:'',filter:(document.getElementById('pFilter')||{}).value||'clean',voiceProvider:vp,voice:v});
-  if(r.ok){ASSISTANT_NAME=r.data.assistantName;ASSISTANT_PERSONALITY={personality:r.data.personality,character:r.data.character,filter:r.data.filter,hasAvatar:ASSISTANT_PERSONALITY.hasAvatar,voiceProvider:r.data.voiceProvider||'openai',voice:r.data.voice||'alloy'};updatePresence();render();toast('Personality saved — '+ASSISTANT_NAME+' is ready.')}
+  const mods=[...document.querySelectorAll('.pRitualMod')].filter(cb=>cb.checked).map(cb=>cb.value);
+  const r=await api('/api/settings',{assistantName:name.trim()||'Assistant',personality:(document.getElementById('pPersonality')||{}).value||'',character:'',filter:(document.getElementById('pFilter')||{}).value||'clean',voiceProvider:vp,voice:v,ritualEnabled:!!(document.getElementById('pRitualOn')||{}).checked,ritualModules:mods,ritualSign:(document.getElementById('pRitualSign')||{}).value||''});
+  if(r.ok){ASSISTANT_NAME=r.data.assistantName;ASSISTANT_PERSONALITY={personality:r.data.personality,character:r.data.character,filter:r.data.filter,hasAvatar:ASSISTANT_PERSONALITY.hasAvatar,voiceProvider:r.data.voiceProvider||'openai',voice:r.data.voice||'alloy',ritualEnabled:!!r.data.ritualEnabled,ritualModules:r.data.ritualModules||[],ritualSign:r.data.ritualSign||''};updatePresence();render();toast('Personality saved — '+ASSISTANT_NAME+' is ready.')}
   else toast(r.data.error||'Could not save.')
 }
 function speakMsg(i,btn){

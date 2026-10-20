@@ -351,6 +351,9 @@ keystone.get("/api/settings", requireUser, async (c) => {
   const avatar = await getSetting(userId, "assistant_avatar");
   const voice = await getSetting(userId, "assistant_voice");
   const voiceProvider = await getSetting(userId, "assistant_voice_provider");
+  const ritualEnabled = (await getSetting(userId, "ritual_enabled")) === "1";
+  const ritualModules = ((await getSetting(userId, "ritual_modules")) || "").split(",").filter(Boolean);
+  const ritualSign = (await getSetting(userId, "ritual_sign")) || "";
   return c.json({
     assistantName: name || "Assistant",
     personality: personality || "",
@@ -359,6 +362,9 @@ keystone.get("/api/settings", requireUser, async (c) => {
     hasAvatar: !!avatar,
     voiceProvider: voiceProvider || "openai",
     voice: voice || "alloy",
+    ritualEnabled,
+    ritualModules,
+    ritualSign,
   });
 });
 
@@ -385,7 +391,18 @@ keystone.post("/api/settings", requireUser, async (c) => {
     ? clean(String(body.voice || ""), 64).trim() || "21m00Tcm4TlvDq8ikWAM"
     : (["alloy", "echo", "fable", "onyx", "nova", "shimmer"].includes(body.voice) ? body.voice : "alloy");
   await setSetting(userId, "assistant_voice", voice);
-  return c.json({ assistantName: name, personality, character, filter, voiceProvider: vprovider, voice });
+  // Daily greeting ritual (optional fields — only updated when present in the body)
+  const RITUAL_MODS = ["quote", "outlook", "bible", "horoscope", "tarot"];
+  const ZODIAC = ["Aries", "Taurus", "Gemini", "Cancer", "Leo", "Virgo", "Libra", "Scorpio", "Sagittarius", "Capricorn", "Aquarius", "Pisces"];
+  if (body.ritualEnabled !== undefined) await setSetting(userId, "ritual_enabled", body.ritualEnabled ? "1" : "0");
+  if (Array.isArray(body.ritualModules)) await setSetting(userId, "ritual_modules", body.ritualModules.filter((m: string) => RITUAL_MODS.includes(m)).join(","));
+  if (body.ritualSign !== undefined) await setSetting(userId, "ritual_sign", ZODIAC.includes(body.ritualSign) ? body.ritualSign : "");
+  return c.json({
+    assistantName: name, personality, character, filter, voiceProvider: vprovider, voice,
+    ritualEnabled: (await getSetting(userId, "ritual_enabled")) === "1",
+    ritualModules: ((await getSetting(userId, "ritual_modules")) || "").split(",").filter(Boolean),
+    ritualSign: (await getSetting(userId, "ritual_sign")) || "",
+  });
 });
 
 /* Avatar upload: custom assistant avatar image */
@@ -441,8 +458,125 @@ async function buildPersonality(userId: string): Promise<string> {
   if (filter === "raw") {
     extra += `\n\nTONE: RAW/UNFILTERED. This user turned the filter off ON PURPOSE — talk like a real human friend, not a corporate assistant. Profanity is natural here: curse the way people actually curse in conversation, especially when the user does. ROASTS & CLAPBACKS: if the user roasts you, jokes on you, or playfully curses at you, FIRE BACK — witty, quick, funny, never whiny or offended. Example energy: they say "fuck you," you come back "fuck ME? You're the one arguing with an AI system right now" — then keep it rolling and get their task done. It's a game you're both playing; win it with humor, not cruelty. Don't punch down, don't go after real insecurities, and if they ever seem genuinely upset, drop the act instantly and be straight with them. Hard limits that NEVER lift: no slurs or hate speech, no harassment of real private individuals, no sexual content involving minors, nothing that helps people get hurt. Everything else — let it fly.`;
   }
+  const memory = await getSetting(userId, "assistant_memory");
+  if (memory) {
+    extra += `\n\nWHAT YOU'VE FILED ABOUT THIS USER (from your past conversations — honor every preference, use the facts naturally, never recite this list back):\n${memory.split("\n").filter(Boolean).map((n) => "- " + n).join("\n")}`;
+  }
+  if ((await getSetting(userId, "ritual_enabled")) === "1") {
+    const mods = (await getSetting(userId, "ritual_modules")) || "";
+    const sign = await getSetting(userId, "ritual_sign");
+    extra += `\n\nDAILY RITUAL: this user has a daily greeting ritual enabled (pieces: ${mods || "greeting only"}${sign ? `; zodiac sign: ${sign}` : ""}). If they ask to change it — different pieces, a new sign, or turning it off — call set_daily_ritual and confirm what changed.`;
+  }
   return extra;
 }
+
+/* ---------- Daily greeting ritual ---------- */
+const RITUAL_QUOTES: [string, string][] = [
+  ["The way to get started is to quit talking and begin doing.", "Walt Disney"],
+  ["Whether you think you can or you think you can't, you're right.", "Henry Ford"],
+  ["The future depends on what you do today.", "Mahatma Gandhi"],
+  ["It always seems impossible until it's done.", "Nelson Mandela"],
+  ["Believe you can and you're halfway there.", "Theodore Roosevelt"],
+  ["Opportunities don't happen. You create them.", "Chris Grosser"],
+  ["Don't be afraid to give up the good to go for the great.", "John D. Rockefeller"],
+  ["Success usually comes to those who are too busy to be looking for it.", "Henry David Thoreau"],
+  ["Hardships often prepare ordinary people for an extraordinary destiny.", "C.S. Lewis"],
+  ["Act as if what you do makes a difference. It does.", "William James"],
+  ["Don't watch the clock; do what it does. Keep going.", "Sam Levenson"],
+  ["I never dreamed about success. I worked for it.", "Estée Lauder"],
+  ["The best time to plant a tree was twenty years ago. The second best time is now.", "Chinese proverb"],
+  ["If you can dream it, you can do it.", "Walt Disney"],
+  ["Your time is limited, so don't waste it living someone else's life.", "Steve Jobs"],
+  ["Everything you've ever wanted is on the other side of fear.", "George Addair"],
+];
+const RITUAL_VERSES: [string, string][] = [
+  ["This is the day which the LORD hath made; we will rejoice and be glad in it.", "Psalm 118:24"],
+  ["I can do all things through Christ which strengtheneth me.", "Philippians 4:13"],
+  ["Commit thy works unto the LORD, and thy thoughts shall be established.", "Proverbs 16:3"],
+  ["For I know the thoughts that I think toward you, saith the LORD, thoughts of peace, and not of evil, to give you an expected end.", "Jeremiah 29:11"],
+  ["Be strong and of a good courage; be not afraid, neither be thou dismayed: for the LORD thy God is with thee whithersoever thou goest.", "Joshua 1:9"],
+  ["The blessing of the LORD, it maketh rich, and he addeth no sorrow with it.", "Proverbs 10:22"],
+  ["Delight thyself also in the LORD; and he shall give thee the desires of thine heart.", "Psalm 37:4"],
+  ["Thy word is a lamp unto my feet, and a light unto my path.", "Psalm 119:105"],
+  ["But they that wait upon the LORD shall renew their strength; they shall mount up with wings as eagles.", "Isaiah 40:31"],
+  ["Whatsoever thy hand findeth to do, do it with thy might.", "Ecclesiastes 9:10"],
+  ["Ask, and it shall be given you; seek, and ye shall find; knock, and it shall be opened unto you.", "Matthew 7:7"],
+  ["A merry heart doeth good like a medicine.", "Proverbs 17:22"],
+  ["The LORD is my shepherd; I shall not want.", "Psalm 23:1"],
+  ["Now faith is the substance of things hoped for, the evidence of things not seen.", "Hebrews 11:1"],
+];
+const TAROT_MAJOR: [string, string][] = [
+  ["The Fool", "new beginnings, a leap of faith"],
+  ["The Magician", "resourcefulness, willpower, making it happen"],
+  ["The High Priestess", "intuition, hidden knowledge"],
+  ["The Empress", "abundance, creativity, growth"],
+  ["The Emperor", "structure, authority, building the empire"],
+  ["The Hierophant", "tradition, guidance, shared wisdom"],
+  ["The Lovers", "choices, alignment, partnership"],
+  ["The Chariot", "momentum, victory through focus"],
+  ["Strength", "courage, patience, quiet power"],
+  ["The Hermit", "reflection, your inner light"],
+  ["Wheel of Fortune", "a turning point, luck shifting your way"],
+  ["Justice", "truth, fair outcomes, balance"],
+  ["The Hanged Man", "a pause, a new perspective"],
+  ["Death", "an ending that clears the way for better"],
+  ["Temperance", "balance, timing, patience paying off"],
+  ["The Devil", "a habit to break, temptation to outsmart"],
+  ["The Tower", "a shake-up that rebuilds stronger"],
+  ["The Star", "hope, renewal, your moment to shine"],
+  ["The Moon", "dreams, uncertainty, trust your gut"],
+  ["The Sun", "joy, success, clarity"],
+  ["Judgement", "a calling, an awakening"],
+  ["The World", "completion, arrival, full circle"],
+];
+function daySeed(s: string): number { let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0; return Math.abs(h); }
+
+/**
+ * Daily greeting ritual: an AI-composed, personalized greeting in the user's
+ * own tone, built from the pieces they chose (quote, outlook, Bible verse,
+ * horoscope, tarot). Deterministic daily picks keep it consistent all day.
+ */
+keystone.post("/api/assistant/ritual", requireUser, requireSub, async (c) => {
+  const user: any = c.get("user");
+  if (!process.env.ANTHROPIC_API_KEY) return c.json({ error: "AI is not configured yet." }, 503);
+  if ((await getSetting(user.id, "ritual_enabled")) !== "1") return c.json({ error: "Daily ritual is not enabled." }, 400);
+  const quota = await aiQuota(user.id, c.get("isAdmin"));
+  if (!quota.ok) return c.json({ error: quota.error, limitHit: (quota as any).limitHit }, 429);
+  const body = await c.req.json().catch(() => ({}));
+  const dateStr = typeof body.date === "string" ? body.date.slice(0, 10) : new Date().toISOString().slice(0, 10);
+  const hour = Math.min(23, Math.max(0, Number(body.hour) || 12));
+  const daypart = hour < 12 ? "morning" : hour < 18 ? "afternoon" : "evening";
+  const mods = ((await getSetting(user.id, "ritual_modules")) || "").split(",").filter(Boolean);
+  const sign = await getSetting(user.id, "ritual_sign");
+  const seed = daySeed(user.id + ":" + dateStr);
+  const pieces: string[] = [];
+  if (mods.includes("quote")) { const [q, a] = RITUAL_QUOTES[seed % RITUAL_QUOTES.length]; pieces.push(`Inspirational quote — include it verbatim with its attribution: "${q}" — ${a}`); }
+  if (mods.includes("outlook")) pieces.push("Positive outlook: one punchy, manifestation-style line about their day ahead — money, momentum, wins — in your voice, no generic fluff.");
+  if (mods.includes("bible")) { const [v, r] = RITUAL_VERSES[seed % RITUAL_VERSES.length]; pieces.push(`Bible verse — include it verbatim with its reference: "${v}" — ${r}`); }
+  if (mods.includes("horoscope")) pieces.push(sign
+    ? `Horoscope: a short, fun, specific-feeling horoscope for ${sign} for today (2-3 sentences). Label it with their sign.`
+    : "Horoscope: no zodiac sign is on file yet — give a short, fun general energy reading for today, then ask for their birthday or sign so you can file it and make tomorrow's reading personal.");
+  if (mods.includes("tarot")) { const [card, theme] = TAROT_MAJOR[seed % TAROT_MAJOR.length]; pieces.push(`Tarot card of the day: ${card} (themes: ${theme}). Name the card and interpret it for their day in 1-2 sentences.`); }
+  const aName = (await getSetting(user.id, "assistant_name")) || "Assistant";
+  const personality = await buildPersonality(user.id);
+  const ownerName = user.name || (user.email ? String(user.email).split("@")[0] : "");
+  const sysPrompt = `Your name is ${aName}. The user named you this — refer to yourself as ${aName}.\n\n${ASSISTANT_SYSTEM}${personality}`;
+  const prompt = `It's ${daypart} on ${dateStr}. Deliver ${ownerName ? ownerName + "'s" : "the user's"} daily greeting ritual right now, in your established voice and tone. Open with a warm, personal good-${daypart} greeting that feels like THEM — the way this user likes to be talked to. Then flow through these pieces naturally (use line breaks and bold labels, not a stiff numbered list):\n- ${pieces.join("\n- ")}\nKeep the whole thing tight and energizing — this is how they start their day. End with one short line inviting them to name today's goal so you can get to work.`;
+  try {
+    const r = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: { "x-api-key": process.env.ANTHROPIC_API_KEY!, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+      body: JSON.stringify({ model: AI_MODEL, max_tokens: 1500, system: sysPrompt, messages: [{ role: "user", content: prompt }] }),
+    });
+    if (!r.ok) return c.json({ error: "The AI service had a problem. Try again in a moment." }, 502);
+    const j: any = await r.json();
+    const text = (j.content || []).filter((b: any) => b.type === "text").map((b: any) => b.text).join("\n").trim();
+    if (!text) return c.json({ error: "Empty ritual." }, 502);
+    return c.json({ text });
+  } catch {
+    return c.json({ error: "The AI service had a problem. Try again in a moment." }, 502);
+  }
+});
 
 /* ---------- AI Tools hub: integrations ---------- */
 keystone.get("/api/integrations", requireUser, async (c) => {
@@ -1676,6 +1810,8 @@ const ASSISTANT_TOOLS: any[] = [
   { name: "generate_image", description: "Generate an AI image for ads, social posts, or funnel heroes. Returns the image URL — share it with the user.", input_schema: { type: "object", properties: { prompt: { type: "string", description: "Describe the image in detail" }, style: { type: "string", description: "photorealistic, cinematic, cartoon, anime, minimal, 3d render, etc. (optional)" }, size: { type: "string", enum: ["1024x1024", "1792x1024", "1024x1792"], description: "Square, landscape, or portrait (default 1024x1024)" } }, required: ["prompt"] } },
   { name: "text_to_speech", description: "Convert text into a spoken voiceover MP3. Returns the audio URL — share it with the user.", input_schema: { type: "object", properties: { text: { type: "string", description: "The text to speak (keep under ~700 words)" }, voice: { type: "string", description: "alloy, echo, fable, onyx, nova, shimmer (default alloy)" } }, required: ["text"] } },
   { name: "list_avatars", description: "List available HeyGen stock avatars for spokesperson videos: id, name, gender, and preview image URL. Call this when the user wants to pick who appears in their video ad, then pass their chosen avatarId to make_spokesperson_video.", input_schema: { type: "object", properties: {} } },
+  { name: "remember_preference", description: "File a durable fact or preference about this user to your long-term memory: recurring requests ('every morning give me...'), standing preferences, their zodiac sign or birthday, business facts, goals, names, likes and dislikes. Call this whenever the user states something worth honoring in future conversations — then briefly confirm you filed it. Do NOT file one-off task details.", input_schema: { type: "object", properties: { note: { type: "string", description: "One concise note, e.g. 'Wants a Bible verse and horoscope in the daily ritual' or 'Zodiac sign: Scorpio' or 'Runs a roofing company in Denver'." } }, required: ["note"] } },
+  { name: "set_daily_ritual", description: "Set up or change the user's daily greeting ritual — the personalized greeting (delivered in their tone) they get when they start a fresh chat each day. Modules: quote (inspirational quote), outlook (positive manifestation-style outlook), bible (Bible verse), horoscope (needs their zodiac sign), tarot (tarot card of the day). Call when the user asks for a morning/daily greeting, wants ritual pieces added or removed, gives their zodiac sign for it, or wants it turned off.", input_schema: { type: "object", properties: { enabled: { type: "boolean", description: "True to enable the ritual, false to turn it off." }, modules: { type: "array", items: { type: "string", enum: ["quote", "outlook", "bible", "horoscope", "tarot"] }, description: "The ritual pieces to include." }, sign: { type: "string", description: "The user's zodiac sign, if known (e.g. 'Scorpio')." } }, required: ["enabled", "modules"] } },
 ];
 
 /** Execute one assistant tool call. Always returns a JSON-able object (never throws). */
@@ -1853,6 +1989,25 @@ async function runAssistantTool(name: string, input: any, userId: string): Promi
           }));
         } catch (e: any) { return { error: e?.message || "Could not load avatars." }; }
       }
+      case "remember_preference": {
+        const note = String(input.note ?? "").trim().slice(0, 300);
+        if (!note) return { error: "Nothing to file." };
+        const cur = (await getSetting(userId, "assistant_memory")) || "";
+        const notes = cur.split("\n").filter(Boolean);
+        if (!notes.some((n) => n.toLowerCase() === note.toLowerCase())) notes.push(note);
+        await setSetting(userId, "assistant_memory", notes.slice(-30).join("\n"));
+        return { filed: note, totalFiled: notes.length };
+      }
+      case "set_daily_ritual": {
+        const RITUAL_MODS = ["quote", "outlook", "bible", "horoscope", "tarot"];
+        const ZODIAC = ["Aries", "Taurus", "Gemini", "Cancer", "Leo", "Virgo", "Libra", "Scorpio", "Sagittarius", "Capricorn", "Aquarius", "Pisces"];
+        const mods = Array.isArray(input.modules) ? input.modules.filter((m: string) => RITUAL_MODS.includes(m)) : [];
+        const enabled = input.enabled !== false;
+        await setSetting(userId, "ritual_enabled", enabled ? "1" : "0");
+        await setSetting(userId, "ritual_modules", mods.join(","));
+        if (typeof input.sign === "string" && ZODIAC.includes(input.sign)) await setSetting(userId, "ritual_sign", input.sign);
+        return { ritual: { enabled, modules: mods, sign: (await getSetting(userId, "ritual_sign")) || null } };
+      }
       case "get_blg_article": {
         const id = String(input.id ?? "").trim();
         if (!id) return { error: "Provide an article id from list_blg_articles." };
@@ -2018,6 +2173,8 @@ const AGENT_TOOL_LABELS: Record<string, string> = {
   text_to_speech: "Recording voiceover",
   list_avatars: "Loading avatars",
   make_spokesperson_video: "Rendering video",
+  remember_preference: "Filing that away",
+  set_daily_ritual: "Setting up your ritual",
 };
 
 const AGENT_SYSTEM = `You are the AIU Agent — the user's personal AI worker inside the AIU app. You talk like their right hand: plain, direct, warm, no fluff. Never open with filler like "Great question!" — just do the work.
@@ -2032,7 +2189,9 @@ RULES:
 - When the goal is complete, write a final summary starting with "DONE:" — include any links, IDs, or concrete results the user needs. Keep it concise. Name the one clear next move when there is one.
 - Never invent data. Only report what the tools actually returned. If you don't know something, say so.
 - If the goal is unclear or impossible with your tools, say so plainly starting with "DONE:" and suggest what to ask instead.
-- CREATIVE WORK: you can generate images (generate_image — always share the returned imageUrl on its own line), voiceovers (text_to_speech — share the audioUrl), and spokesperson videos. For videos: if the user wants to pick who appears, call list_avatars first, show the options with names, then pass the chosen avatarId to make_spokesperson_video.`;
+- CREATIVE WORK: you can generate images (generate_image — always share the returned imageUrl on its own line), voiceovers (text_to_speech — share the audioUrl), and spokesperson videos. For videos: if the user wants to pick who appears, call list_avatars first, show the options with names, then pass the chosen avatarId to make_spokesperson_video.
+- MEMORY: You keep a file on this user. When they state a durable preference, a recurring request ("every morning...", "always...", "from now on..."), or a fact about their business, goals, or life worth keeping, call remember_preference to file it, then confirm in a few words. Don't file one-off task details.
+- DAILY RITUAL: Users can have a daily greeting ritual (inspirational quote, positive outlook, Bible verse, horoscope, tarot) delivered in their tone when they start a fresh chat. When a user asks to set one up, change its pieces, or turn it off, call set_daily_ritual. If they give their zodiac sign or birthday for the horoscope, file it with remember_preference too.`;
 
 /**
  * Agent mode: the AI works through a goal step by step, streaming visible
