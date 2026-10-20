@@ -94,8 +94,19 @@ a{color:var(--volt2)}
 .preset-btn:hover{border-color:var(--volt)}
 .setsec{margin-bottom:20px}
 .setsec>h3{margin:0 0 8px;font-size:15px}
+.secnav{display:flex;flex-direction:column;gap:2px;margin-bottom:10px}
+#mnav{display:none}
+@media(max-width:800px){
+  #mnav{display:flex;position:fixed;left:0;right:0;bottom:0;z-index:200;background:#0a0e11;border-top:1px solid var(--line);padding:6px 4px calc(6px + env(safe-area-inset-bottom))}
+  #mnav button{flex:1;background:none;border:0;color:var(--stone);font:600 11px 'Inter',sans-serif;display:flex;flex-direction:column;align-items:center;gap:2px;padding:6px 0;cursor:pointer}
+  #mnav button span{font-size:19px}
+  #mnav button.on{color:var(--volt)}
+  main{padding-bottom:78px}
+  .side .secnav,.convolist{display:none}
+}
 </style></head><body>
 <nav class="side" id="side"></nav><main id="main"></main>
+<nav id="mnav"><button data-v="home" onclick="goHome()"><span>🏠</span>Home</button><button data-v="chat" onclick="setView('chat')"><span>💬</span>Chat</button><button data-v="aff" onclick="setView('aff')"><span>💸</span>Affiliates</button><button data-v="voice" onclick="openVoicePanel()"><span>🎙️</span>Voice</button><button data-v="setup" onclick="openSettings()"><span>⚙️</span>Setup</button></nav>
 <div id="presence" style="position:fixed;top:12px;left:50%;transform:translateX(-50%);z-index:100;display:none;align-items:center;gap:10px;background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:8px 18px 8px 8px;box-shadow:0 4px 24px rgba(0,0,0,.4);cursor:move;touch-action:none;user-select:none"><div id="presenceAvatar" style="width:36px;height:36px;border-radius:50%;overflow:hidden;flex:none"><svg width="36" height="36" viewBox="0 0 48 48"><rect width="48" height="48" rx="12" fill="#14191d"/><path d="M10 33 L24 11 L38 33" stroke="#2dd4bf" stroke-width="6.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/><circle cx="24" cy="36" r="3.2" fill="#2dd4bf"/></svg></div><div><div id="presenceName" style="font-weight:700;font-size:14px">Assistant</div><div id="presenceStatus" style="font-size:12px;color:var(--stone)">Ready</div></div><div id="presenceDot" style="width:10px;height:10px;border-radius:50%;background:#22c55e"></div></div>
 <script>
 const $=s=>document.querySelector(s);
@@ -114,13 +125,21 @@ const dshort=t=>{try{return new Date(t).toLocaleDateString(undefined,{month:'sho
 
 function renderSide(){
   const cl=(convos||[]).slice(0,60);
+  const SEC=[['home','🏠','Home'],['chat','💬','Chat'],['funnels','🎯','Funnels & Leads'],['videos','🎬','Videos'],['studio','🎨','Studio'],['tools','🧰','AI Tools'],['aff','💸','Affiliates']];
+  const secHtml='<div class="secnav">'+SEC.map(([v,ic,l])=>{
+    const on=(v=='home'&&view=='chat'&&!chatId)||(v=='chat'&&view=='chat'&&!!chatId)||view==v;
+    return `<button class="nav ${on?'on':''}" onclick="${v=='home'?'goHome()':`setView('${v}')`}">${ic} ${l}</button>`;
+  }).join('')+'</div>';
   $('#side').innerHTML='<div class="logo" style="display:flex;align-items:center;gap:10px"><svg width="34" height="34" viewBox="0 0 48 48"><rect width="48" height="48" rx="12" fill="#14191d" stroke="#272e35" stroke-width="1.5"/><path d="M10 33 L24 11 L38 33" stroke="#2dd4bf" stroke-width="6.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/><circle cx="24" cy="36" r="3.2" fill="#2dd4bf"/></svg><span>AI<i>U</i></span></div>'+
     '<button class="newchat" onclick="newChat()">+ New chat</button>'+
+    secHtml+
     '<div class="convolist">'+(cl.map(c=>`<button class="conv ${c.id==chatId?'on':''}" onclick="openConvo(${c.id})" title="${esc(c.title||'')}">${esc(c.title||'New chat')}</button>`).join('')||'<div style="color:var(--stone);font-size:13px;padding:8px 12px">No chats yet.</div>')+'</div>'+
     `<div class="foot"><span class="pill">${limits.limit<0?'AI: unlimited':`AI: ${limits.used}/${limits.limit} today`}</span><button class="nav" id="pwaBtn" style="display:none;border:1px solid var(--lime);color:var(--lime)" onclick="pwaInstall()">Install app</button><button class="nav" onclick="openSettings()">\u2699\uFE0F Assistant setup</button><button class="nav" onclick="setView('bill')">Billing</button>${isAdmin?`<button class="nav" onclick="setView('admin')">Admin</button>`:''}<button class="nav" onclick="out()">Sign out</button></div>`;
   showPwaBtn();
 }
-function setView(v){view=(v=='bill'||v=='admin')?v:'chat';artifactTab='preview';render()}
+const VIEWS=['chat','funnels','videos','studio','tools','aff','bill','admin'];
+function setView(v){view=VIEWS.includes(v)?v:'chat';artifactTab='preview';render();try{window.scrollTo(0,0)}catch(e){}}
+function goHome(){newChat()}
 async function out(){chatId=null;msgs=[];artifact=null;try{Object.keys(localStorage).filter(k=>k.indexOf('aiu_')===0).forEach(k=>localStorage.removeItem(k))}catch(e){}await api('/api/auth/sign-out',{});location.href='/'}
 /* Keep the current chat across tab switches and app backgrounding: remember chatId for 30 min. */
 const CHAT_GRACE_MS=30*60*1000;
@@ -326,6 +345,28 @@ function studioListHtml(){
 function affBodyHtml(){
   return AFF===null?'<div class="card">Loading...</div>':AFF==='err'?`<div class="card"><b>Couldn't load affiliates</b><p style="color:var(--stone)">${esc(AFFERR)}</p><div class="row" style="margin-top:10px"><button class="btn lime" onclick="AFF=null;AFFERR='';render();affLoad()">Try again</button></div></div>`:(AFF.affiliate?affDash(AFF):affJoin());
 }
+/* ---------- restored section views (chat stays home; sections one tap away) ---------- */
+let VIDS=null,VIDSERR='',STUDIO=null,STUDIOERR='',AFF=null,AFFERR='';
+async function vidLoad(){try{const r=await api('/api/videos');if(r.ok)VIDS=r.data.videos||[];else{VIDS='err';VIDSERR=r.data.error||'Request failed'}}catch(e){VIDS='err';VIDSERR='Network error'}const b=document.getElementById('vidbody');if(b)b.innerHTML=vidListHtml()}
+async function vidCheck(id){const r=await api('/api/videos/'+id);if(r.ok)vidLoad();else toast(r.data.error||'Could not refresh that video.')}
+async function vidCreate(){const s=(document.getElementById('vidScript')||{}).value||'';if(!s.trim()){toast('Write the script first.');return}toast('Starting your video…');const r=await api('/api/videos',{script:s,format:(document.getElementById('vidFormat')||{}).value||'landscape'});if(r.ok){toast('Video rendering — check back in a few minutes.');vidLoad()}else if(r.status==429&&typeof showUpgrade=='function')showUpgrade();else toast(r.data.error||'Could not start the video.')}
+async function studioLoad(){try{const r=await api('/api/studio/jobs');if(r.ok)STUDIO=r.data.jobs||[];else{STUDIO='err';STUDIOERR=r.data.error||'Request failed'}}catch(e){STUDIO='err';STUDIOERR='Network error'}const b=document.getElementById('studiobody');if(b)b.innerHTML=studioListHtml()}
+async function studioImage(){const p=(document.getElementById('stPrompt')||{}).value||'';if(!p.trim()){toast('Describe the image first.');return}toast('Creating your image…');const r=await api('/api/studio/image',{prompt:p});if(r.ok){toast('Image ready below.');studioLoad()}else if(r.status==429&&typeof showUpgrade=='function')showUpgrade();else toast(r.data.error||'Image failed.')}
+async function studioTts(){const t=(document.getElementById('stText')||{}).value||'';if(!t.trim()){toast('Write the voiceover text first.');return}toast('Recording voiceover…');const r=await api('/api/studio/tts',{text:t});if(r.ok){toast('Voiceover ready below.');studioLoad()}else if(r.status==429&&typeof showUpgrade=='function')showUpgrade();else toast(r.data.error||'Voiceover failed.')}
+async function studioBg(){const u=(document.getElementById('stBgUrl')||{}).value||'';if(!u.trim()){toast('Paste an image URL first.');return}toast('Removing background…');const r=await api('/api/studio/bgremove',{imageUrl:u});if(r.ok){toast('Done — see the result below.');studioLoad()}else if(r.status==429&&typeof showUpgrade=='function')showUpgrade();else toast(r.data.error||'Background removal failed.')}
+async function affLoad(){try{const r=await api('/api/affiliates/me');if(r.ok)AFF=r.data;else{AFF='err';AFFERR=r.data.error||'Request failed'}}catch(e){AFF='err';AFFERR='Network error'}const b=document.getElementById('affbody');if(b)b.innerHTML=affBodyHtml()}
+function funListHtml(){
+  const cards=(F||[]).map(f=>`<div class="card"><div class="row" style="justify-content:space-between"><div><b>${esc(f.title||'Untitled')}</b> <span class="pill">${esc(f.industry||'')}</span> <span class="pill">${f.status=='live'?'● live':'draft'}</span></div><div class="row" style="gap:6px"><button class="btn ghost" onclick="window.open('${esc(f.url||('/f/'+f.slug))}','_blank')">View</button><button class="btn ${f.status=='live'?'ghost':'lime'}" onclick="funPublish(${f.id},'${f.status=='live'?'draft':'live'}')">${f.status=='live'?'Unpublish':'Publish'}</button></div></div><p class="sub">${esc(f.url||'')} · ${f.leads??0} leads · ${f.views??0} views</p></div>`).join('')||'<div class="card"><p style="color:var(--stone)">No funnels yet — build your first one above, or just ask in Chat.</p></div>';
+  const leads=(FL||[]).slice(0,25).map(l=>`<div class="card"><div class="row" style="justify-content:space-between"><b>${esc(l.name||'Lead')}</b><span class="pill">${esc(l.status||'new')}</span></div><p class="sub">${esc(l.email||'')} ${esc(l.phone||'')}</p></div>`).join('');
+  return cards+(leads?`<h3 style="margin:18px 0 8px">Recent leads</h3>${leads}`:'');
+}
+async function funCreate(){const biz=(document.getElementById('fnBiz')||{}).value||'';const ind=(document.getElementById('fnInd')||{}).value||'';if(!ind.trim()){toast('Add an industry first (e.g. roofing).');return}toast('Building your funnel…');const r=await api('/api/funnels/generate',{industry:ind,business:biz});if(r.ok){toast('Funnel built — find it below.');await funLoad();const b=document.getElementById('funbody');if(b)b.innerHTML=funListHtml()}else if(r.status==429&&typeof showUpgrade=='function')showUpgrade();else toast(r.data.error||'Could not build that funnel.')}
+async function funPublish(id,status){const r=await api('/api/funnels/'+id+'/publish',{status});if(r.ok){toast(status=='live'?'Funnel is live.':'Funnel back to draft.');await funLoad();const b=document.getElementById('funbody');if(b)b.innerHTML=funListHtml()}else toast(r.data.error||'Could not update that funnel.')}
+function vFunnels(){return `<div class="fade"><h1>Fun<i>nels</i> & Leads</h1><p class="sub">Your lead funnels and the customers they capture. Build here, or just ask in Chat.</p><div class="card"><b>Quick builder</b><div class="row" style="gap:8px;flex-wrap:wrap;margin-top:8px"><input id="fnBiz" placeholder="Business name" style="flex:1;min-width:150px"><input id="fnInd" placeholder="Industry (e.g. roofing)" style="flex:1;min-width:150px"><button class="btn lime" onclick="funCreate()">Build funnel</button></div></div><div id="funbody">${funListHtml()}</div></div>`}
+function vVideos(){return `<div class="fade"><h1>Vid<i>eos</i></h1><p class="sub">AI spokesperson videos for your business.</p><div class="card"><b>New video</b><textarea id="vidScript" placeholder="Write what your spokesperson should say..." style="min-height:80px;margin-top:8px"></textarea><div class="row" style="gap:8px;margin-top:8px;flex-wrap:wrap"><select id="vidFormat" style="max-width:180px"><option value="landscape">Landscape 16:9</option><option value="portrait">Portrait 9:16</option><option value="square">Square 1:1</option></select><button class="btn lime" onclick="vidCreate()">Render video</button></div></div><div id="vidbody">${vidListHtml()}</div></div>`}
+function vStudio(){return `<div class="fade"><h1>Stu<i>dio</i></h1><p class="sub">Images, voiceovers, and background removal.</p><div class="card"><b>Create an image</b><div class="row" style="gap:8px;margin-top:8px;flex-wrap:wrap"><input id="stPrompt" placeholder="Describe the image..." style="flex:1;min-width:200px"><button class="btn lime" onclick="studioImage()">Generate</button></div></div><div class="card"><b>Voiceover</b><textarea id="stText" placeholder="Text to speak..." style="min-height:60px;margin-top:8px"></textarea><div class="row" style="margin-top:8px"><button class="btn lime" onclick="studioTts()">Record voiceover</button></div></div><div class="card"><b>Remove a background</b><div class="row" style="gap:8px;margin-top:8px;flex-wrap:wrap"><input id="stBgUrl" placeholder="Paste an image URL..." style="flex:1;min-width:200px"><button class="btn lime" onclick="studioBg()">Remove background</button></div></div><div id="studiobody">${studioListHtml()}</div></div>`}
+function vTools(){return `<div class="fade"><h1>AI <i>Tools</i></h1><p class="sub">The AI services wired into your assistant. Connect your own keys to unlock more.</p><div id="toolsbody">${toolsHtml()}</div></div>`}
+function vAff(){return `<div class="fade"><h1>Affi<i>liates</i></h1><p class="sub">Share your link and earn on every subscriber — climb from 15% to a lifetime 50%.</p><div id="affbody">${affBodyHtml()}</div></div>`}
 /* ---------- AI Tools hub ---------- */
 let TOOLS_SVCS=[];
 async function toolsLoad(){try{const r=await api('/api/integrations');TOOLS_SVCS=r.ok?(r.data.services||[]):[]}catch(e){TOOLS_SVCS=[]}const b=document.getElementById('toolsbody');if(b)b.innerHTML=toolsHtml();const m=document.getElementById('setTools');if(m)m.innerHTML=toolsHtml()}
@@ -551,8 +592,14 @@ async function pickPresetAvatar(i){
 /* ---------- boot ---------- */
 function render(){
   renderSide();
-  $('#main').innerHTML=({chat:vChat,bill:vBill,admin:vAdmin})[view]();
+  $('#main').innerHTML=({chat:vChat,funnels:vFunnels,videos:vVideos,studio:vStudio,tools:vTools,aff:vAff,bill:vBill,admin:vAdmin})[view]();
+  document.querySelectorAll('#mnav button').forEach(b=>b.classList.toggle('on',(b.dataset.v=='aff'&&view=='aff')||(b.dataset.v=='chat'&&view=='chat')));
   if(view=='chat'){renderArtifact();const l=$('#chatlog');if(l)l.scrollTop=l.scrollHeight}
+  if(view=='funnels')funLoad().then(()=>{const b=document.getElementById('funbody');if(b)b.innerHTML=funListHtml()});
+  if(view=='videos')vidLoad();
+  if(view=='studio')studioLoad();
+  if(view=='tools')toolsLoad();
+  if(view=='aff')affLoad();
   if(view=='bill')billLoad();
   if(view=='admin')admLoad();
 }
