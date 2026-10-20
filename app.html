@@ -177,7 +177,7 @@ function vChat(){
   <div class="chips">${CHIPS.map(c=>`<button class="chip" onclick="sendChat('${c.replace(/'/g,"\\'")}')">${esc(c)}</button>`).join('')}</div>
   <div id="chatlog" style="flex:1">${msgs.map((m,i)=>`<div class="msg ${m.role=='user'?'user':'ai'}">${m.role=='assistant'?`<button onclick="speakMsg(${i},this)" title="Listen" style="float:right;background:none;border:none;cursor:pointer;font-size:16px;padding:2px 4px;opacity:.7">\uD83D\uDD0A</button>`:''}${fmtBody(m.content)}</div>`).join('')||welcomeHtml()}</div>
   <div id="artifact"></div>
-  <div class="composer pluswrap"><button class="btn ghost" id="plusBtn" onclick="togglePlus(event)" title="Quick actions" style="border-radius:14px;padding:10px 14px;flex:none">+</button><div class="plusmenu" id="plusMenu" style="display:none"><button onclick="quickAct('Build a lead funnel for my business')">\uD83C\uDFAF Build a funnel</button><button onclick="quickAct('Make a spokesperson video ad for my business')">\uD83C\uDFAC Make a video ad</button><button onclick="quickAct('Create an AI image for my marketing: ')">\uD83C\uDFA8 Create an image</button><button onclick="quickAct('Create a voiceover for this script: ')">\uD83C\uDF99\uFE0F Voiceover</button><button onclick="quickAct('Show my new leads')">\uD83D\uDC65 Show my leads</button><button onclick="quickAct('What is my affiliate referral link?')">\uD83D\uDD17 Referral link</button></div><textarea id="cin" rows="2" placeholder="Ask anything, or tell me what to build..." onkeydown="if(event.key=='Enter'&&!event.shiftKey){event.preventDefault();sendChat()}"></textarea><button class="btn" id="csend" onclick="sendChat()">Send</button></div>
+  <div class="composer pluswrap"><button class="btn ghost" id="plusBtn" onclick="togglePlus(event)" title="Quick actions" style="border-radius:14px;padding:10px 14px;flex:none">+</button><div class="plusmenu" id="plusMenu" style="display:none"><button onclick="quickAct('Build a lead funnel for my business')">\uD83C\uDFAF Build a funnel</button><button onclick="quickAct('Make a spokesperson video ad for my business')">\uD83C\uDFAC Make a video ad</button><button onclick="quickAct('Create an AI image for my marketing: ')">\uD83C\uDFA8 Create an image</button><button onclick="quickAct('Create a voiceover for this script: ')">\uD83C\uDF99\uFE0F Voiceover</button><button onclick="quickAct('Show my new leads')">\uD83D\uDC65 Show my leads</button><button onclick="quickAct('What is my affiliate referral link?')">\uD83D\uDD17 Referral link</button></div><textarea id="cin" rows="2" placeholder="Ask anything, or tell me what to build..." onkeydown="if(event.key=='Enter'&&!event.shiftKey){event.preventDefault();sendChat()}"></textarea><button class="btn ghost" onclick="openVoicePanel()" title="Voice — make your assistant sound like you" style="border-radius:14px;padding:10px 13px;flex:none">🎙️</button><button class="btn" id="csend" onclick="sendChat()">Send</button></div>
   </div>`;
 }
 function togglePlus(e){e.stopPropagation();const m=document.getElementById('plusMenu');const open=m.style.display!='none';document.querySelectorAll('.plusmenu').forEach(x=>x.style.display='none');m.style.display=open?'none':'grid';if(!open)setTimeout(()=>document.addEventListener('click',function c(){m.style.display='none';document.removeEventListener('click',c)}),10)}
@@ -503,6 +503,13 @@ function openSettings(){
           <div id="cloneStatus" class="sub"></div>
         </div>
       </div>
+      <div class="setsec"><h3>Your profile</h3><p class="sub">Your assistant uses this to address you by your first name and personalize everything — your horoscope comes from your birthday. Or just tell your assistant in chat and it'll file it.</p>
+        <div class="row" style="gap:8px;flex-wrap:wrap"><input id="pfFirst" placeholder="First name" maxlength="60" style="flex:1;min-width:130px"><input id="pfLast" placeholder="Last name" maxlength="60" style="flex:1;min-width:130px"></div>
+        <input id="pfAddress" placeholder="Street address" maxlength="160" style="margin-top:8px">
+        <div class="row" style="gap:8px;flex-wrap:wrap;margin-top:8px"><input id="pfCity" placeholder="City" maxlength="60" style="flex:2;min-width:110px"><input id="pfState" placeholder="State" maxlength="30" style="flex:1;min-width:70px"><input id="pfZip" placeholder="ZIP" maxlength="12" style="flex:1;min-width:70px"></div>
+        <div class="row" style="gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px"><span class="sub">Date of birth:</span><input type="date" id="pfDob" style="max-width:200px"><span class="sub">Sex:</span><select id="pfSex" style="max-width:170px"><option value="">Prefer not to say</option><option value="male">Male</option><option value="female">Female</option><option value="other">Other</option></select></div>
+        <p class="sub" style="font-size:12px;margin-top:8px">💳 Payment details are handled securely in <b>Billing</b> (Stripe) — they're never stored in your profile.</p>
+      </div>
       <div class="setsec"><h3>Daily ritual</h3><p class="sub">Start fresh chats with a greeting built for you — in your assistant's voice. Or just ask in chat: "set up a morning ritual for me."</p>
         <label style="display:flex;gap:8px;align-items:center;font-size:14px;color:var(--txt)"><input type="checkbox" id="pRitualOn" style="width:auto"> Daily greeting ritual</label>
         <div class="row" style="gap:14px;flex-wrap:wrap;margin-top:8px">
@@ -562,9 +569,9 @@ function render(){
 
 /* ---------- Assistant naming + presence ---------- */
 let ASSISTANT_NAME='Assistant';
-let ASSISTANT_PERSONALITY={personality:'',character:'',filter:'clean',hasAvatar:false,voiceProvider:'openai',voice:'alloy',ritualEnabled:false,ritualModules:[],ritualSign:''};
-async function loadAssistantName(){try{const r=await api('/api/settings');if(r.ok){if(r.data.assistantName){ASSISTANT_NAME=r.data.assistantName}ASSISTANT_PERSONALITY={personality:r.data.personality||'',character:r.data.character||'',filter:r.data.filter||'clean',hasAvatar:!!r.data.hasAvatar,voiceProvider:r.data.voiceProvider||'openai',voice:r.data.voice||'alloy',ritualEnabled:!!r.data.ritualEnabled,ritualModules:r.data.ritualModules||[],ritualSign:r.data.ritualSign||''};updatePresence();fillPersonality()}}catch(e){}}
-function fillPersonality(){const n=document.getElementById('pName');if(!n)return;n.value=ASSISTANT_NAME=='Assistant'?'':ASSISTANT_NAME;const pp=document.getElementById('pPersonality');if(pp)pp.value=ASSISTANT_PERSONALITY.personality;const pf=document.getElementById('pFilter');if(pf)pf.value=ASSISTANT_PERSONALITY.filter;const pv=document.getElementById('pVoiceProvider');if(pv)pv.value=ASSISTANT_PERSONALITY.voiceProvider;const pvv=document.getElementById('pVoice');if(pvv)pvv.value=ASSISTANT_PERSONALITY.voice;const ro=document.getElementById('pRitualOn');if(ro)ro.checked=!!ASSISTANT_PERSONALITY.ritualEnabled;document.querySelectorAll('.pRitualMod').forEach(cb=>{cb.checked=(ASSISTANT_PERSONALITY.ritualModules||[]).includes(cb.value)});const rs=document.getElementById('pRitualSign');if(rs)rs.value=ASSISTANT_PERSONALITY.ritualSign||'';voiceProviderChanged();const av=document.getElementById('avatarPrev');if(av){av.style.display=ASSISTANT_PERSONALITY.hasAvatar?'':'none';if(ASSISTANT_PERSONALITY.hasAvatar)av.src='/api/settings/avatar/img?'+Date.now()}}
+let ASSISTANT_PERSONALITY={personality:'',character:'',filter:'clean',hasAvatar:false,voiceProvider:'openai',voice:'alloy',ritualEnabled:false,ritualModules:[],ritualSign:'',profile:{firstName:'',lastName:'',address:'',city:'',state:'',zip:'',dob:'',sex:''}};
+async function loadAssistantName(){try{const r=await api('/api/settings');if(r.ok){if(r.data.assistantName){ASSISTANT_NAME=r.data.assistantName}ASSISTANT_PERSONALITY={personality:r.data.personality||'',character:r.data.character||'',filter:r.data.filter||'clean',hasAvatar:!!r.data.hasAvatar,voiceProvider:r.data.voiceProvider||'openai',voice:r.data.voice||'alloy',ritualEnabled:!!r.data.ritualEnabled,ritualModules:r.data.ritualModules||[],ritualSign:r.data.ritualSign||'',profile:r.data.profile||{firstName:'',lastName:'',address:'',city:'',state:'',zip:'',dob:'',sex:''}};updatePresence();fillPersonality()}}catch(e){}}
+function fillPersonality(){const n=document.getElementById('pName');if(!n)return;n.value=ASSISTANT_NAME=='Assistant'?'':ASSISTANT_NAME;const pp=document.getElementById('pPersonality');if(pp)pp.value=ASSISTANT_PERSONALITY.personality;const pf=document.getElementById('pFilter');if(pf)pf.value=ASSISTANT_PERSONALITY.filter;const pv=document.getElementById('pVoiceProvider');if(pv)pv.value=ASSISTANT_PERSONALITY.voiceProvider;const pvv=document.getElementById('pVoice');if(pvv)pvv.value=ASSISTANT_PERSONALITY.voice;const ro=document.getElementById('pRitualOn');if(ro)ro.checked=!!ASSISTANT_PERSONALITY.ritualEnabled;document.querySelectorAll('.pRitualMod').forEach(cb=>{cb.checked=(ASSISTANT_PERSONALITY.ritualModules||[]).includes(cb.value)});const rs=document.getElementById('pRitualSign');if(rs)rs.value=ASSISTANT_PERSONALITY.ritualSign||'';const P=ASSISTANT_PERSONALITY.profile||{};const setV=(id,v)=>{const el=document.getElementById(id);if(el)el.value=v||''};setV('pfFirst',P.firstName);setV('pfLast',P.lastName);setV('pfAddress',P.address);setV('pfCity',P.city);setV('pfState',P.state);setV('pfZip',P.zip);setV('pfDob',P.dob);setV('pfSex',P.sex);voiceProviderChanged();const av=document.getElementById('avatarPrev');if(av){av.style.display=ASSISTANT_PERSONALITY.hasAvatar?'':'none';if(ASSISTANT_PERSONALITY.hasAvatar)av.src='/api/settings/avatar/img?'+Date.now()}}
 async function voiceProviderChanged(){
   const p=document.getElementById('pVoiceProvider').value;
   document.getElementById('pVoice').style.display=p=='openai'?'':'none';
@@ -605,13 +612,102 @@ async function cloneVoice(){
   document.getElementById('pElVoice').value=j.voiceId;
   previewVoice();
 }
+/* ---------- Chat voice panel: pick a voice or clone your own ---------- */
+function settingsPayload(over){
+  return Object.assign({assistantName:ASSISTANT_NAME||'Assistant',personality:ASSISTANT_PERSONALITY.personality||'',character:'',filter:ASSISTANT_PERSONALITY.filter||'clean',voiceProvider:ASSISTANT_PERSONALITY.voiceProvider||'openai',voice:ASSISTANT_PERSONALITY.voice||'alloy',ritualEnabled:!!ASSISTANT_PERSONALITY.ritualEnabled,ritualModules:ASSISTANT_PERSONALITY.ritualModules||[],ritualSign:ASSISTANT_PERSONALITY.ritualSign||'',profile:ASSISTANT_PERSONALITY.profile||{}},over||{});
+}
+function openVoicePanel(){
+  let bg=document.getElementById('voiceModal');
+  if(!bg){
+    bg=document.createElement('div');bg.id='voiceModal';bg.className='modal-bg';bg.style.display='none';
+    bg.innerHTML=`<div class="modal">
+      <div class="row" style="justify-content:space-between;margin-bottom:12px"><h2 style="margin:0">Your assistant's voice</h2><button class="btn ghost" onclick="closeVoicePanel()">✕</button></div>
+      <p class="sub">Pick a stock voice — or clone <b>your own</b> and every reply, greeting, and voiceover sounds like you. Tap 🔊 on any message to hear it.</p>
+      <div class="setsec"><h3>Voice</h3>
+        <div class="row" style="gap:8px;align-items:center;flex-wrap:wrap">
+          <select id="vcProvider" onchange="vcProviderChanged()" style="max-width:210px"><option value="openai">Stock voices</option><option value="elevenlabs">ElevenLabs (clones)</option></select>
+          <select id="vcVoice" style="max-width:190px"><option value="alloy">Alloy</option><option value="echo">Echo</option><option value="fable">Fable</option><option value="onyx">Onyx</option><option value="nova">Nova</option><option value="shimmer">Shimmer</option></select>
+          <select id="vcElVoice" style="display:none;max-width:230px"><option value="">Loading voices…</option></select>
+          <button class="btn ghost" onclick="vcPreview(this)">🔊 Preview</button>
+          <button class="btn" onclick="vcSave()">Save voice</button>
+        </div>
+      </div>
+      <div class="setsec" id="vcCloneBox"><h3>🎙️ Make it sound like you</h3>
+        <p class="sub">Upload 1–3 clear clips of just you talking (30+ seconds each, quiet room) and we'll clone your voice. Only clone a voice you have the right to use.</p>
+        <div class="row" style="gap:8px;flex-wrap:wrap;align-items:center">
+          <input id="vcName" placeholder="Voice name (e.g. My voice)" maxlength="60" style="flex:1;min-width:150px">
+          <input id="vcFiles" type="file" accept="audio/*" multiple style="flex:1;min-width:180px">
+          <button class="btn lime" onclick="vcClone()">Clone my voice</button>
+        </div>
+        <div id="vcStatus" class="sub" style="margin-top:6px"></div>
+      </div>
+    </div>`;
+    document.body.appendChild(bg);
+    bg.addEventListener('click',e=>{if(e.target===bg)closeVoicePanel()});
+  }
+  document.getElementById('vcProvider').value=ASSISTANT_PERSONALITY.voiceProvider||'openai';
+  document.getElementById('vcVoice').value=ASSISTANT_PERSONALITY.voice||'alloy';
+  vcProviderChanged();
+  bg.style.display='flex';
+}
+function closeVoicePanel(){const bg=document.getElementById('voiceModal');if(bg)bg.style.display='none'}
+async function vcProviderChanged(){
+  const p=document.getElementById('vcProvider').value;
+  document.getElementById('vcVoice').style.display=p=='openai'?'':'none';
+  document.getElementById('vcElVoice').style.display=p=='elevenlabs'?'':'none';
+  if(p=='elevenlabs') await vcLoadVoices();
+}
+async function vcLoadVoices(){
+  const sel=document.getElementById('vcElVoice');
+  sel.innerHTML='<option value="">Loading voices…</option>';
+  const r=await api('/api/assistant/voices');
+  if(!r.ok){sel.innerHTML='<option value="">ElevenLabs not connected — add the key in Assistant setup → Connections</option>';return}
+  const vs=r.data.voices||[];
+  sel.innerHTML=vs.map(v=>`<option value="${esc(v.id)}">${esc(v.name)}</option>`).join('')||'<option value="">No voices yet — clone yours below</option>';
+  if(ASSISTANT_PERSONALITY.voiceProvider=='elevenlabs'&&ASSISTANT_PERSONALITY.voice) sel.value=ASSISTANT_PERSONALITY.voice;
+}
+function vcSelection(){
+  const vp=document.getElementById('vcProvider').value;
+  return {voiceProvider:vp,voice:vp=='elevenlabs'?(document.getElementById('vcElVoice').value||ASSISTANT_PERSONALITY.voice||''):document.getElementById('vcVoice').value};
+}
+async function vcSave(){
+  const s=vcSelection();
+  const r=await api('/api/settings',settingsPayload(s));
+  if(r.ok){ASSISTANT_PERSONALITY.voiceProvider=s.voiceProvider;ASSISTANT_PERSONALITY.voice=s.voice;toast('Voice saved.');closeVoicePanel()}
+  else toast(r.data.error||'Could not save voice.');
+}
+async function vcPreview(btn){
+  const s=vcSelection();
+  const r=await api('/api/settings',settingsPayload(s));
+  if(!r.ok){toast(r.data.error||'Could not preview.');return}
+  ASSISTANT_PERSONALITY.voiceProvider=s.voiceProvider;ASSISTANT_PERSONALITY.voice=s.voice;
+  speakText(`Hey, I'm ${ASSISTANT_NAME}. This is what I sound like. Ask me anything — I talk like you do.`,btn);
+}
+async function vcClone(){
+  const st=document.getElementById('vcStatus');
+  const files=document.getElementById('vcFiles').files;
+  if(!files.length){st.textContent='Pick 1–3 audio clips first.';return}
+  st.textContent='Cloning… this takes about a minute.';
+  const fd=new FormData();fd.append('name',document.getElementById('vcName').value.trim()||'My Voice');
+  for(const f of files)fd.append('files',f);
+  const r=await fetch('/api/assistant/voice/clone',{method:'POST',credentials:'include',body:fd});
+  const j=await r.json().catch(()=>({}));
+  if(!r.ok){st.textContent=j.error||'Cloning failed.';return}
+  const sv=await api('/api/settings',settingsPayload({voiceProvider:'elevenlabs',voice:j.voiceId}));
+  if(sv.ok){ASSISTANT_PERSONALITY.voiceProvider='elevenlabs';ASSISTANT_PERSONALITY.voice=j.voiceId}
+  document.getElementById('vcProvider').value='elevenlabs';
+  await vcLoadVoices();document.getElementById('vcElVoice').value=j.voiceId;
+  st.textContent='✅ Voice cloned and saved — your assistant sounds like you now. Tap Preview to hear it.';
+}
 async function savePersonality(){
   const name=(document.getElementById('pName')||{}).value||'';
   const vp=(document.getElementById('pVoiceProvider')||{}).value||'openai';
   const v=vp=='elevenlabs'?((document.getElementById('pElVoice')||{}).value||''):((document.getElementById('pVoice')||{}).value||'alloy');
   const mods=[...document.querySelectorAll('.pRitualMod')].filter(cb=>cb.checked).map(cb=>cb.value);
-  const r=await api('/api/settings',{assistantName:name.trim()||'Assistant',personality:(document.getElementById('pPersonality')||{}).value||'',character:'',filter:(document.getElementById('pFilter')||{}).value||'clean',voiceProvider:vp,voice:v,ritualEnabled:!!(document.getElementById('pRitualOn')||{}).checked,ritualModules:mods,ritualSign:(document.getElementById('pRitualSign')||{}).value||''});
-  if(r.ok){ASSISTANT_NAME=r.data.assistantName;ASSISTANT_PERSONALITY={personality:r.data.personality,character:r.data.character,filter:r.data.filter,hasAvatar:ASSISTANT_PERSONALITY.hasAvatar,voiceProvider:r.data.voiceProvider||'openai',voice:r.data.voice||'alloy',ritualEnabled:!!r.data.ritualEnabled,ritualModules:r.data.ritualModules||[],ritualSign:r.data.ritualSign||''};updatePresence();render();toast('Personality saved — '+ASSISTANT_NAME+' is ready.')}
+  const gv=id=>(document.getElementById(id)||{}).value||'';
+  const profile={firstName:gv('pfFirst'),lastName:gv('pfLast'),address:gv('pfAddress'),city:gv('pfCity'),state:gv('pfState'),zip:gv('pfZip'),dob:gv('pfDob'),sex:gv('pfSex')};
+  const r=await api('/api/settings',{assistantName:name.trim()||'Assistant',personality:(document.getElementById('pPersonality')||{}).value||'',character:'',filter:(document.getElementById('pFilter')||{}).value||'clean',voiceProvider:vp,voice:v,ritualEnabled:!!(document.getElementById('pRitualOn')||{}).checked,ritualModules:mods,ritualSign:(document.getElementById('pRitualSign')||{}).value||'',profile});
+  if(r.ok){ASSISTANT_NAME=r.data.assistantName;ASSISTANT_PERSONALITY={personality:r.data.personality,character:r.data.character,filter:r.data.filter,hasAvatar:ASSISTANT_PERSONALITY.hasAvatar,voiceProvider:r.data.voiceProvider||'openai',voice:r.data.voice||'alloy',ritualEnabled:!!r.data.ritualEnabled,ritualModules:r.data.ritualModules||[],ritualSign:r.data.ritualSign||'',profile:r.data.profile||profile};updatePresence();render();toast('Personality saved — '+ASSISTANT_NAME+' is ready.')}
   else toast(r.data.error||'Could not save.')
 }
 function speakMsg(i,btn){
@@ -640,7 +736,7 @@ async function previewVoice(){
   const v=vp=='elevenlabs'?document.getElementById('pElVoice').value:document.getElementById('pVoice').value;
   const name=document.getElementById('pName').value.trim()||'your assistant';
   // Temporarily save the voice so the preview uses it
-  await api('/api/settings',{assistantName:document.getElementById('pName').value.trim()||'Assistant',personality:document.getElementById('pPersonality').value,character:document.getElementById('pChar').value,filter:document.getElementById('pFilter').value,voiceProvider:vp,voice:v});
+  await api('/api/settings',{assistantName:document.getElementById('pName').value.trim()||'Assistant',personality:document.getElementById('pPersonality').value,character:'',filter:document.getElementById('pFilter').value,voiceProvider:vp,voice:v});
   ASSISTANT_PERSONALITY.voiceProvider=vp;ASSISTANT_PERSONALITY.voice=v;
   speakText(`Hey, I'm ${name}. This is what I sound like.`,document.querySelector('[onclick="previewVoice()"]'));
 }

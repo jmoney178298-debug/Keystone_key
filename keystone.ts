@@ -342,6 +342,37 @@ async function setSetting(userId: string, key: string, value: string) {
     .onConflictDoUpdate({ target: [userSettings.userId, userSettings.key], set: { value } });
 }
 
+/* ---------- Customer profile (name / address / DOB / sex) ---------- */
+const PROFILE_KEYS: Record<string, string> = {
+  firstName: "profile_first_name", lastName: "profile_last_name", address: "profile_address",
+  city: "profile_city", state: "profile_state", zip: "profile_zip", dob: "profile_dob", sex: "profile_sex",
+};
+async function getProfile(userId: string): Promise<Record<string, string>> {
+  const out: Record<string, string> = {};
+  for (const [field, key] of Object.entries(PROFILE_KEYS)) out[field] = (await getSetting(userId, key)) || "";
+  return out;
+}
+async function setProfile(userId: string, p: any): Promise<Record<string, string>> {
+  if (p && typeof p === "object") {
+    for (const field of Object.keys(PROFILE_KEYS)) {
+      if (p[field] === undefined) continue;
+      let v = clean(String(p[field] ?? ""), field === "address" ? 160 : 60) || "";
+      if (field === "dob" && !/^\d{4}-\d{2}-\d{2}$/.test(v)) v = "";
+      if (field === "sex" && !["male", "female", "other"].includes(v)) v = "";
+      await setSetting(userId, PROFILE_KEYS[field], v);
+    }
+  }
+  return getProfile(userId);
+}
+function zodiacFromDob(dob: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dob || "");
+  if (!m) return "";
+  const mo = Number(m[2]), d = Number(m[3]);
+  const S: [number, number, string][] = [[1, 19, "Capricorn"], [2, 18, "Aquarius"], [3, 20, "Pisces"], [4, 19, "Aries"], [5, 20, "Taurus"], [6, 20, "Gemini"], [7, 22, "Cancer"], [8, 22, "Leo"], [9, 22, "Virgo"], [10, 22, "Libra"], [11, 21, "Scorpio"], [12, 21, "Sagittarius"], [12, 31, "Capricorn"]];
+  for (const [mm, dd, s] of S) if (mo < mm || (mo === mm && d <= dd)) return s;
+  return "Capricorn";
+}
+
 keystone.get("/api/settings", requireUser, async (c) => {
   const userId = c.get("user").id;
   const name = await getSetting(userId, "assistant_name");
@@ -365,6 +396,7 @@ keystone.get("/api/settings", requireUser, async (c) => {
     ritualEnabled,
     ritualModules,
     ritualSign,
+    profile: await getProfile(userId),
   });
 });
 
@@ -397,11 +429,14 @@ keystone.post("/api/settings", requireUser, async (c) => {
   if (body.ritualEnabled !== undefined) await setSetting(userId, "ritual_enabled", body.ritualEnabled ? "1" : "0");
   if (Array.isArray(body.ritualModules)) await setSetting(userId, "ritual_modules", body.ritualModules.filter((m: string) => RITUAL_MODS.includes(m)).join(","));
   if (body.ritualSign !== undefined) await setSetting(userId, "ritual_sign", ZODIAC.includes(body.ritualSign) ? body.ritualSign : "");
+  // Customer profile (optional object — only provided fields are updated)
+  const profile = body.profile !== undefined ? await setProfile(userId, body.profile) : await getProfile(userId);
   return c.json({
     assistantName: name, personality, character, filter, voiceProvider: vprovider, voice,
     ritualEnabled: (await getSetting(userId, "ritual_enabled")) === "1",
     ritualModules: ((await getSetting(userId, "ritual_modules")) || "").split(",").filter(Boolean),
     ritualSign: (await getSetting(userId, "ritual_sign")) || "",
+    profile,
   });
 });
 
@@ -457,6 +492,16 @@ async function buildPersonality(userId: string): Promise<string> {
   extra += `\n\nADAPT TO THIS PERSON: Everyone talks differently — mirror how THIS user talks. Match their energy, vocabulary, formality, and humor: slang and shorthand when they're casual, clean and structured when they're professional, short and punchy when they're short and punchy. Pick up their phrases and rhythm over time. Talking to you should feel like talking to a friend who talks like them — never a corporate script. (Mirroring never overrides the tone filter: in clean mode, adapt everything except profanity.)`;
   if (filter === "raw") {
     extra += `\n\nTONE: RAW/UNFILTERED. This user turned the filter off ON PURPOSE — talk like a real human friend, not a corporate assistant. Profanity is natural here: curse the way people actually curse in conversation, especially when the user does. ROASTS & CLAPBACKS: if the user roasts you, jokes on you, or playfully curses at you, FIRE BACK — witty, quick, funny, never whiny or offended. Example energy: they say "fuck you," you come back "fuck ME? You're the one arguing with an AI system right now" — then keep it rolling and get their task done. It's a game you're both playing; win it with humor, not cruelty. Don't punch down, don't go after real insecurities, and if they ever seem genuinely upset, drop the act instantly and be straight with them. Hard limits that NEVER lift: no slurs or hate speech, no harassment of real private individuals, no sexual content involving minors, nothing that helps people get hurt. Everything else — let it fly.`;
+  }
+  const profile = await getProfile(userId);
+  if (profile.firstName || profile.lastName) {
+    const full = [profile.firstName, profile.lastName].filter(Boolean).join(" ");
+    const sign = zodiacFromDob(profile.dob);
+    const pron = profile.sex === "male" ? "he/him" : profile.sex === "female" ? "she/her" : profile.sex === "other" ? "they/them" : "";
+    extra += `\n\nABOUT THIS USER (from their profile — use it naturally): Their name is ${full}. ALWAYS address them as ${profile.firstName || full} — never by a username, email handle, or account name.` +
+      (profile.dob ? ` Date of birth: ${profile.dob}${sign ? ` (zodiac sign: ${sign})` : ""}.` : "") +
+      (pron ? ` Pronouns: ${pron} — refer to them accordingly.` : "") +
+      (profile.city ? ` Located in ${profile.city}${profile.state ? ", " + profile.state : ""}.` : "");
   }
   const memory = await getSetting(userId, "assistant_memory");
   if (memory) {
@@ -547,7 +592,8 @@ keystone.post("/api/assistant/ritual", requireUser, requireSub, async (c) => {
   const hour = Math.min(23, Math.max(0, Number(body.hour) || 12));
   const daypart = hour < 12 ? "morning" : hour < 18 ? "afternoon" : "evening";
   const mods = ((await getSetting(user.id, "ritual_modules")) || "").split(",").filter(Boolean);
-  const sign = await getSetting(user.id, "ritual_sign");
+  const profile = await getProfile(user.id);
+  const sign = (await getSetting(user.id, "ritual_sign")) || zodiacFromDob(profile.dob);
   const seed = daySeed(user.id + ":" + dateStr);
   const pieces: string[] = [];
   if (mods.includes("quote")) { const [q, a] = RITUAL_QUOTES[seed % RITUAL_QUOTES.length]; pieces.push(`Inspirational quote — include it verbatim with its attribution: "${q}" — ${a}`); }
@@ -559,7 +605,7 @@ keystone.post("/api/assistant/ritual", requireUser, requireSub, async (c) => {
   if (mods.includes("tarot")) { const [card, theme] = TAROT_MAJOR[seed % TAROT_MAJOR.length]; pieces.push(`Tarot card of the day: ${card} (themes: ${theme}). Name the card and interpret it for their day in 1-2 sentences.`); }
   const aName = (await getSetting(user.id, "assistant_name")) || "Assistant";
   const personality = await buildPersonality(user.id);
-  const ownerName = user.name || (user.email ? String(user.email).split("@")[0] : "");
+  const ownerName = profile.firstName || user.name || (user.email ? String(user.email).split("@")[0] : "");
   const sysPrompt = `Your name is ${aName}. The user named you this — refer to yourself as ${aName}.\n\n${ASSISTANT_SYSTEM}${personality}`;
   const prompt = `It's ${daypart} on ${dateStr}. Deliver ${ownerName ? ownerName + "'s" : "the user's"} daily greeting ritual right now, in your established voice and tone. Open with a warm, personal good-${daypart} greeting that feels like THEM — the way this user likes to be talked to. Then flow through these pieces naturally (use line breaks and bold labels, not a stiff numbered list):\n- ${pieces.join("\n- ")}\nKeep the whole thing tight and energizing — this is how they start their day. End with one short line inviting them to name today's goal so you can get to work.`;
   try {
@@ -1812,6 +1858,7 @@ const ASSISTANT_TOOLS: any[] = [
   { name: "list_avatars", description: "List available HeyGen stock avatars for spokesperson videos: id, name, gender, and preview image URL. Call this when the user wants to pick who appears in their video ad, then pass their chosen avatarId to make_spokesperson_video.", input_schema: { type: "object", properties: {} } },
   { name: "remember_preference", description: "File a durable fact or preference about this user to your long-term memory: recurring requests ('every morning give me...'), standing preferences, their zodiac sign or birthday, business facts, goals, names, likes and dislikes. Call this whenever the user states something worth honoring in future conversations — then briefly confirm you filed it. Do NOT file one-off task details.", input_schema: { type: "object", properties: { note: { type: "string", description: "One concise note, e.g. 'Wants a Bible verse and horoscope in the daily ritual' or 'Zodiac sign: Scorpio' or 'Runs a roofing company in Denver'." } }, required: ["note"] } },
   { name: "set_daily_ritual", description: "Set up or change the user's daily greeting ritual — the personalized greeting (delivered in their tone) they get when they start a fresh chat each day. Modules: quote (inspirational quote), outlook (positive manifestation-style outlook), bible (Bible verse), horoscope (needs their zodiac sign), tarot (tarot card of the day). Call when the user asks for a morning/daily greeting, wants ritual pieces added or removed, gives their zodiac sign for it, or wants it turned off.", input_schema: { type: "object", properties: { enabled: { type: "boolean", description: "True to enable the ritual, false to turn it off." }, modules: { type: "array", items: { type: "string", enum: ["quote", "outlook", "bible", "horoscope", "tarot"] }, description: "The ritual pieces to include." }, sign: { type: "string", description: "The user's zodiac sign, if known (e.g. 'Scorpio')." } }, required: ["enabled", "modules"] } },
+  { name: "update_profile", description: "Save structured profile details the user gives you — first/last name, street address, city, state, ZIP, date of birth (YYYY-MM-DD), sex (male/female/other) — into their profile, so you always address them correctly and can personalize things like their horoscope. Call whenever the user provides any of these in conversation. Only include the fields they actually gave you.", input_schema: { type: "object", properties: { firstName: { type: "string" }, lastName: { type: "string" }, address: { type: "string" }, city: { type: "string" }, state: { type: "string" }, zip: { type: "string" }, dob: { type: "string", description: "Date of birth as YYYY-MM-DD." }, sex: { type: "string", enum: ["male", "female", "other"] } } } },
 ];
 
 /** Execute one assistant tool call. Always returns a JSON-able object (never throws). */
@@ -2008,6 +2055,10 @@ async function runAssistantTool(name: string, input: any, userId: string): Promi
         if (typeof input.sign === "string" && ZODIAC.includes(input.sign)) await setSetting(userId, "ritual_sign", input.sign);
         return { ritual: { enabled, modules: mods, sign: (await getSetting(userId, "ritual_sign")) || null } };
       }
+      case "update_profile": {
+        const saved = await setProfile(userId, input);
+        return { profile: saved, zodiac: zodiacFromDob(saved.dob) || null };
+      }
       case "get_blg_article": {
         const id = String(input.id ?? "").trim();
         if (!id) return { error: "Provide an article id from list_blg_articles." };
@@ -2175,6 +2226,7 @@ const AGENT_TOOL_LABELS: Record<string, string> = {
   make_spokesperson_video: "Rendering video",
   remember_preference: "Filing that away",
   set_daily_ritual: "Setting up your ritual",
+  update_profile: "Updating your profile",
 };
 
 const AGENT_SYSTEM = `You are the AIU Agent — the user's personal AI worker inside the AIU app. You talk like their right hand: plain, direct, warm, no fluff. Never open with filler like "Great question!" — just do the work.
@@ -2191,7 +2243,8 @@ RULES:
 - If the goal is unclear or impossible with your tools, say so plainly starting with "DONE:" and suggest what to ask instead.
 - CREATIVE WORK: you can generate images (generate_image — always share the returned imageUrl on its own line), voiceovers (text_to_speech — share the audioUrl), and spokesperson videos. For videos: if the user wants to pick who appears, call list_avatars first, show the options with names, then pass the chosen avatarId to make_spokesperson_video.
 - MEMORY: You keep a file on this user. When they state a durable preference, a recurring request ("every morning...", "always...", "from now on..."), or a fact about their business, goals, or life worth keeping, call remember_preference to file it, then confirm in a few words. Don't file one-off task details.
-- DAILY RITUAL: Users can have a daily greeting ritual (inspirational quote, positive outlook, Bible verse, horoscope, tarot) delivered in their tone when they start a fresh chat. When a user asks to set one up, change its pieces, or turn it off, call set_daily_ritual. If they give their zodiac sign or birthday for the horoscope, file it with remember_preference too.`;
+- DAILY RITUAL: Users can have a daily greeting ritual (inspirational quote, positive outlook, Bible verse, horoscope, tarot) delivered in their tone when they start a fresh chat. When a user asks to set one up, change its pieces, or turn it off, call set_daily_ritual. If they give their zodiac sign or birthday for the horoscope, file it with remember_preference too.
+- PROFILE: When a user tells you their name, birthday, address, or other profile details in conversation, save them with update_profile so every future conversation already knows them — and always address the user by their first name from their profile, never a username or email handle.`;
 
 /**
  * Agent mode: the AI works through a goal step by step, streaming visible
