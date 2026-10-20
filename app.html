@@ -71,6 +71,29 @@ a{color:var(--volt2)}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
 @media(prefers-reduced-motion:reduce){.fade>*{animation:none}}
 @media(max-width:800px){body{flex-direction:column}.side{width:100%;flex-direction:row;overflow-x:auto;padding:10px;align-items:center}.logo{padding:0 10px;font-size:22px}.nav{white-space:nowrap;padding:8px 12px}.side .foot .pill,.side .foot #pwaBtn{display:none}.side .foot{display:flex;flex-direction:row;padding:0}main{padding:16px}.composer{position:static;background:none}}
+.newchat{display:block;width:100%;background:var(--panel2);border:1px solid var(--line);color:var(--txt);border-radius:10px;padding:10px 12px;font:600 14px 'Inter';cursor:pointer;margin:2px 0 10px;text-align:left;transition:border-color .15s}
+.newchat:hover{border-color:var(--volt)}
+.convolist{flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:2px;min-height:60px;margin-bottom:8px}
+.conv{background:none;border:0;color:var(--stone);text-align:left;padding:8px 12px;border-radius:8px;font:500 13px 'Inter';cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.conv:hover{color:var(--txt);background:rgba(255,255,255,.04)}
+.conv.on{color:var(--txt);background:rgba(45,212,191,.1)}
+.workcard{border-color:var(--volt)!important}
+.worksteps{display:grid;gap:6px;margin-top:10px}
+.workstep{display:flex;gap:8px;align-items:flex-start;font-size:13px;color:var(--stone);line-height:1.45}
+.pluswrap{position:relative}
+.plusmenu{position:absolute;bottom:calc(100% + 8px);left:0;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:6px;display:grid;gap:2px;min-width:230px;box-shadow:0 8px 32px rgba(0,0,0,.5);z-index:60}
+.plusmenu button{background:none;border:0;color:var(--txt);text-align:left;padding:10px 12px;border-radius:8px;font:500 14px 'Inter';cursor:pointer;display:flex;gap:10px;align-items:center}
+.plusmenu button:hover{background:rgba(255,255,255,.06)}
+.modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.62);z-index:300;display:flex;align-items:center;justify-content:center;padding:18px}
+.modal{background:var(--panel);border:1px solid var(--line);border-radius:16px;max-width:660px;width:100%;max-height:90vh;overflow-y:auto;padding:24px}
+.preset-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(64px,1fr));gap:10px;margin:8px 0}
+.preset-av{width:60px;height:60px;border-radius:50%;cursor:pointer;border:2px solid transparent;object-fit:cover;display:block}
+.preset-av.on{border-color:var(--volt)}
+.preset-row{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0}
+.preset-btn{background:var(--panel2);border:1px solid var(--line);color:var(--txt);border-radius:999px;padding:8px 14px;font:600 13px 'Inter';cursor:pointer}
+.preset-btn:hover{border-color:var(--volt)}
+.setsec{margin-bottom:20px}
+.setsec>h3{margin:0 0 8px;font-size:15px}
 </style></head><body>
 <nav class="side" id="side"></nav><main id="main"></main>
 <div id="presence" style="position:fixed;top:12px;left:50%;transform:translateX(-50%);z-index:100;display:none;align-items:center;gap:10px;background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:8px 18px 8px 8px;box-shadow:0 4px 24px rgba(0,0,0,.4);cursor:move;touch-action:none;user-select:none"><div id="presenceAvatar" style="width:36px;height:36px;border-radius:50%;overflow:hidden;flex:none"><svg width="36" height="36" viewBox="0 0 48 48"><rect width="48" height="48" rx="12" fill="#14191d"/><path d="M10 33 L24 11 L38 33" stroke="#2dd4bf" stroke-width="6.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/><circle cx="24" cy="36" r="3.2" fill="#2dd4bf"/></svg></div><div><div id="presenceName" style="font-weight:700;font-size:14px">Assistant</div><div id="presenceStatus" style="font-size:12px;color:var(--stone)">Ready</div></div><div id="presenceDot" style="width:10px;height:10px;border-radius:50%;background:#22c55e"></div></div>
@@ -83,37 +106,21 @@ async function api(path,body){const r=await fetch(path,{method:body?'POST':'GET'
 function cp(t){try{navigator.clipboard.writeText(t);toast('Copied')}catch(e){prompt('Copy:',t)}}
 function toast(t){const d=document.createElement('div');d.style.cssText='position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#1B2440;border:1px solid rgba(255,255,255,.15);color:#e9edf0;padding:10px 20px;border-radius:999px;font-size:14px;z-index:99';d.textContent=t;document.body.appendChild(d);setTimeout(()=>d.remove(),2400)}
 
-let view='assist', isAdmin=false, planLabel='basic', signedIn=false;
+let view='chat', isAdmin=false, planLabel='basic', signedIn=false;
 let msgs=[], chatId=null, convos=[];
 let artifact=null; // {name, code}
 let limits={plan:'basic',limit:20,used:0};
 const dshort=t=>{try{return new Date(t).toLocaleDateString(undefined,{month:'short',day:'numeric'})}catch(e){return''}};
 
-const NAV=[
- ['assist','Assistant',"This is your right hand. Tell it what you need — funnels, copy, answers, ideas. It learns how you work and gets sharper every time you talk to it. I built it to be the assistant I always wished I had."],
- ['funnels','Funnels & Leads',"This is where money gets made. Build pages that capture leads, then work those leads. Every business needs this — I built mine on it."],
- ['videos','Videos',"Spokesperson videos without touching a camera. Type your script, pick your format, done. Made for ads."],
- ['studio','Studio',"Your creative shop. Images, voiceovers, background removal — plus the clipper that turns long videos into short viral clips."],
- ['tools','AI Tools',"Every AI in one place. Connect your keys, unlock premium voices and AI search. Track every subscription so nothing ever sneaks up on you again."],
- ['aff','Affiliates',"Get paid to spread the word. Share your link, earn commission on every signup. This is how we all eat."],
-];
-const NAV_ADMIN=['admin','Admin',"The command center. Your numbers, your people, your business — everything in one view."];
-function founderTip(id,ev){ev.stopPropagation();const d=NAV.concat([NAV_ADMIN]).find(n=>n[0]==id);if(!d)return;let t=document.getElementById('founderTip');if(t){t.remove();if(t.dataset.for==id)return}
- t=document.createElement('div');t.id='founderTip';t.dataset.for=id;
- t.style.cssText='position:fixed;z-index:200;max-width:300px;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px;box-shadow:0 8px 32px rgba(0,0,0,.5);display:flex;gap:12px;align-items:flex-start';
- t.innerHTML=`<img src="/founder.jpg" style="width:48px;height:48px;border-radius:50%;object-fit:cover;flex:none;border:2px solid var(--lime)"><div><b style="font-size:13px">Javier — founder</b><p class="sub" style="margin:4px 0 0;font-size:13px;line-height:1.45">${d[2]}</p></div>`;
- document.body.appendChild(t);
- const r=ev.target.getBoundingClientRect();let x=Math.min(window.innerWidth-320,Math.max(10,r.left));let y=r.bottom+8;if(y+160>window.innerHeight)y=Math.max(10,r.top-170);
- t.style.left=x+'px';t.style.top=y+'px';
- setTimeout(()=>{const c=e=>{if(!t.contains(e.target)){t.remove();document.removeEventListener('click',c)}};document.addEventListener('click',c)},10);
-}
 function renderSide(){
-  $('#side').innerHTML='<div class="logo" style="display:flex;align-items:center;gap:10px"><svg width="36" height="36" viewBox="0 0 48 48"><rect width="48" height="48" rx="12" fill="#14191d" stroke="#272e35" stroke-width="1.5"/><path d="M10 33 L24 11 L38 33" stroke="#2dd4bf" stroke-width="6.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/><circle cx="24" cy="36" r="3.2" fill="#2dd4bf"/></svg><span>AI<i>U</i></span></div>'+
-    NAV.concat(isAdmin?[NAV_ADMIN]:[]).map(n=>`<button class="nav ${n[0]==view?'on':''}" onclick="setView('${n[0]}')" style="display:flex;align-items:center;gap:8px"><img src="/founder.jpg" onclick="founderTip('${n[0]}',event)" title="What is this?" style="width:24px;height:24px;border-radius:50%;object-fit:cover;flex:none;cursor:help;border:1px solid var(--line)"><span>${n[1]}</span>${n[0]=='funnels'&&newLeadCount()>0?` <span class="pill" style="border-color:var(--lime);color:var(--lime)">${newLeadCount()} new</span>`:''}</button>`).join('')+
-    `<div class="foot"><span class="pill">${limits.limit<0?'AI: unlimited':`AI: ${limits.used}/${limits.limit} today`}</span><button class="nav" id="pwaBtn" style="display:none;border:1px solid var(--lime);color:var(--lime)" onclick="pwaInstall()">Install app</button><button class="nav" onclick="setView('bill')">Billing</button><button class="nav" onclick="out()">Sign out</button></div>`;
+  const cl=(convos||[]).slice(0,60);
+  $('#side').innerHTML='<div class="logo" style="display:flex;align-items:center;gap:10px"><svg width="34" height="34" viewBox="0 0 48 48"><rect width="48" height="48" rx="12" fill="#14191d" stroke="#272e35" stroke-width="1.5"/><path d="M10 33 L24 11 L38 33" stroke="#2dd4bf" stroke-width="6.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/><circle cx="24" cy="36" r="3.2" fill="#2dd4bf"/></svg><span>AI<i>U</i></span></div>'+
+    '<button class="newchat" onclick="newChat()">+ New chat</button>'+
+    '<div class="convolist">'+(cl.map(c=>`<button class="conv ${c.id==chatId?'on':''}" onclick="openConvo(${c.id})" title="${esc(c.title||'')}">${esc(c.title||'New chat')}</button>`).join('')||'<div style="color:var(--stone);font-size:13px;padding:8px 12px">No chats yet.</div>')+'</div>'+
+    `<div class="foot"><span class="pill">${limits.limit<0?'AI: unlimited':`AI: ${limits.used}/${limits.limit} today`}</span><button class="nav" id="pwaBtn" style="display:none;border:1px solid var(--lime);color:var(--lime)" onclick="pwaInstall()">Install app</button><button class="nav" onclick="openSettings()">\u2699\uFE0F Assistant setup</button><button class="nav" onclick="setView('bill')">Billing</button>${isAdmin?`<button class="nav" onclick="setView('admin')">Admin</button>`:''}<button class="nav" onclick="out()">Sign out</button></div>`;
   showPwaBtn();
 }
-function setView(v){view=v;artifactTab='preview';if(v=='assist'){loadConvos()}render()}
+function setView(v){view=(v=='bill'||v=='admin')?v:'chat';artifactTab='preview';render()}
 async function out(){await api('/api/auth/sign-out',{});try{localStorage.removeItem('aiu_chat')}catch(e){}location.href='/'}
 /* Keep the current chat across tab switches and app backgrounding: remember chatId for 30 min. */
 const CHAT_GRACE_MS=30*60*1000;
@@ -123,7 +130,7 @@ setInterval(saveChatState,15000);
 window.addEventListener('pagehide',saveChatState);
 
 /* ---------- chat ---------- */
-const CHIPS=['Build me a funnel for roofers','Show my new leads','Build a landing page for my business','What is my plan?'];
+const CHIPS=['Build a lead funnel for my business','Make a spokesperson video ad','Create an image for my ad','Show my new leads'];
 function fmtBody(t){
   // code fences -> <pre>, then line breaks
   const parts=String(t).split(/```(\w*)\n?([\s\S]*?)```/g);
@@ -135,130 +142,21 @@ function fmtBody(t){
   return h;
 }
 function welcomeHtml(){
-  if(convos.length) return '<div class="msg sys">Say hello — try one of the suggestions above.</div>';
-  return `<div class="msg ai"><b>Hey — I'm ${esc(ASSISTANT_NAME)}, your right hand in here.</b><br><br>Tell me what you want in plain words and I'll get it done: a <b>lead funnel</b> that captures customers, a <b>website or app</b> for your business — or ask me anything about your plan, leads, and referrals.<br><br>Flip on <b>Agent mode</b> above if you want to watch me work through something step by step. Tap a suggestion to see what I can do.</div>`;
+  if((convos||[]).length) return '<div class="msg sys">Say hello — try one of the suggestions above.</div>';
+  return `<div class="msg ai"><b>Hey — I'm ${esc(ASSISTANT_NAME)}, your right hand in here.</b><br><br>Tell me what you want in plain words and I'll get it done while you watch: a <b>lead funnel</b> that captures customers, a <b>spokesperson video ad</b>, <b>images</b> for your marketing, a <b>website or app</b> — or ask about your plan, leads, and referrals.<br><br>Tap a suggestion to see what I can do.</div>`;
 }
-function vAssist(){
-  return `<div class="fade"><h1>${esc(ASSISTANT_NAME)}</h1>
-  <p class="sub">Your personal AI — chat, build funnels that generate leads, create websites and apps, manage leads.</p>
-  <div class="card" style="border-color:var(--lime)"><b>🎭 Personality</b><p class="sub">Make ${esc(ASSISTANT_NAME)} yours — name, face, voice, and attitude.</p>
-  <div style="display:grid;gap:10px;margin-top:10px">
-    <div class="row" style="gap:12px;align-items:center">
-      <img id="avatarPrev" src="/api/settings/avatar/img" onerror="this.style.display='none'" style="width:56px;height:56px;border-radius:50%;object-fit:cover;border:2px solid var(--lime)">
-      <div style="display:grid;gap:6px;flex:1">
-        <div class="row" style="gap:8px"><input type="file" id="avatarFile" accept="image/*" style="flex:1;background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:8px;color:var(--txt);font-size:12px"><button class="btn" onclick="uploadAvatar()">Upload</button></div>
-        <button class="btn ghost" style="font-size:12px" onclick="removeAvatar()">Remove custom avatar</button>
-      </div>
-    </div>
-    <div class="row" style="gap:8px;flex-wrap:wrap">
-      <input id="pName" placeholder="Name (e.g. Deadpool)" maxlength="30" style="flex:1;min-width:140px;background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px;color:var(--txt)">
-      <input id="pChar" placeholder="Talk like... (e.g. Deadpool, Tony Stark)" maxlength="100" style="flex:2;min-width:180px;background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px;color:var(--txt)">
-    </div>
-    <textarea id="pPersonality" placeholder="Describe how you want your AI to be... (e.g. 'A sarcastic genius who roasts my bad ideas but always helps me win. Treats me like a friend, not a customer.')" maxlength="2000" style="min-height:70px;background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px;color:var(--txt)"></textarea>
-    <div class="row" style="gap:8px;align-items:center;flex-wrap:wrap">
-      <span class="sub">Voice:</span>
-      <select id="pVoiceProvider" onchange="voiceProviderChanged()" style="background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px;color:var(--txt)"><option value="openai">Stock voices</option><option value="elevenlabs">ElevenLabs</option></select>
-      <select id="pVoice" style="background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px;color:var(--txt)"><option value="alloy">Alloy</option><option value="echo">Echo</option><option value="fable">Fable</option><option value="onyx">Onyx</option><option value="nova">Nova</option><option value="shimmer">Shimmer</option></select>
-      <select id="pElVoice" style="display:none;background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px;color:var(--txt)"><option value="">Loading voices…</option></select>
-      <button class="btn ghost" onclick="previewVoice()">🔊 Preview voice</button>
-    </div>
-    <p class="sub" style="font-size:12px">Your assistant speaks with a selected AI voice — pick a stock voice or an ElevenLabs one. Want it to sound like <b>you</b>? <a href="#" onclick="showCloneBox();return false" style="color:var(--lime)">Upload your own voice below</a> and we'll clone it.</p>
-    <div id="cloneBox" style="display:none;border:1px dashed var(--line);border-radius:10px;padding:12px">
-      <div class="sub" style="margin-bottom:8px"><b>Clone a voice</b> — upload 1–3 clear audio clips of the voice you want (30+ seconds each, no background noise). Use a voice you have the right to clone.</div>
-      <div class="row" style="gap:8px;flex-wrap:wrap;align-items:center">
-        <input id="cloneName" placeholder="Voice name (e.g. Ryan-style)" maxlength="60" style="background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px;color:var(--txt);min-width:160px">
-        <input id="cloneFiles" type="file" accept="audio/*" multiple style="color:var(--muted)">
-        <button class="btn ghost" onclick="cloneVoice()">🎙 Clone voice</button>
-      </div>
-      <div id="cloneStatus" class="sub"></div>
-    </div>
-    <div class="row" style="gap:8px;align-items:center">
-      <span class="sub">Tone:</span>
-      <select id="pFilter" style="background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px;color:var(--txt)"><option value="clean">Clean</option><option value="raw">Raw / unfiltered</option></select>
-      <button class="btn lime" onclick="savePersonality()">Save personality</button>
-    </div>
-    <p class="sub" style="font-size:11px">Raw lets it swear, roast, and talk freely — like a real person with no filter. It still won't do hate, harassment, or harm. Ever.</p>
-  </div></div>
-  <div class="row" style="margin-bottom:12px">
-    <button class="btn ${assistMode=='chat'?'lime':'ghost'}" onclick="setAssistMode('chat')">Chat</button>
-    <button class="btn ${assistMode=='agent'?'lime':'ghost'}" onclick="setAssistMode('agent')">Agent mode</button>
-    ${assistMode=='chat'?`<button class="btn ghost" onclick="newChat()">+ New chat</button>
-    <select id="convosel" onchange="openConvo(this.value)" style="flex:1;min-width:160px;max-width:440px"><option value="">Past conversations…</option>${convos.map(c=>`<option value="${c.id}"${c.id==chatId?' selected':''}>${esc(c.title)} · ${esc(dshort(c.updatedAt))}</option>`).join('')}</select>
-    ${chatId?`<button class="btn danger" onclick="delConvo()">Delete</button>`:''}`:''}
-  </div>
-  ${assistMode=='chat'?`
+function vChat(){
+  return `<div class="fade" style="display:flex;flex-direction:column;min-height:calc(100vh - 60px)">
   <div class="chips">${CHIPS.map(c=>`<button class="chip" onclick="sendChat('${c.replace(/'/g,"\\'")}')">${esc(c)}</button>`).join('')}</div>
-  <div id="chatlog">${msgs.map((m,i)=>`<div class="msg ${m.role=='user'?'user':'ai'}">${m.role=='assistant'?`<button onclick="speakMsg(${i},this)" title="Listen" style="float:right;background:none;border:none;cursor:pointer;font-size:16px;padding:2px 4px;opacity:.7">🔊</button>`:''}${fmtBody(m.content)}</div>`).join('')||welcomeHtml()}</div>
+  <div id="chatlog" style="flex:1">${msgs.map((m,i)=>`<div class="msg ${m.role=='user'?'user':'ai'}">${m.role=='assistant'?`<button onclick="speakMsg(${i},this)" title="Listen" style="float:right;background:none;border:none;cursor:pointer;font-size:16px;padding:2px 4px;opacity:.7">\uD83D\uDD0A</button>`:''}${fmtBody(m.content)}</div>`).join('')||welcomeHtml()}</div>
   <div id="artifact"></div>
-  <div class="composer"><textarea id="cin" rows="2" placeholder="Ask anything, or tell me what to build..." onkeydown="if(event.key=='Enter'&&!event.shiftKey){event.preventDefault();sendChat()}"></textarea><button class="btn" id="csend" onclick="sendChat()">Send</button></div>
-  `:`
-  <div class="card" style="border-color:var(--lime)">
-    <b>Agent mode</b>
-    <p style="color:var(--stone);font-size:14px;margin:6px 0 12px">Give the agent a goal and watch it work through it step by step — like watching an assistant check things off a list. Try: "Build a funnel for my roofing business and publish it" or "Check my new leads and claim the best one".</p>
-    <div class="composer"><textarea id="agentIn" rows="2" placeholder="What should the agent get done?"></textarea><button class="btn lime" id="agentGo" onclick="runAgent()">Run</button></div>
-  </div>
-  <div id="agentSteps" style="display:grid;gap:8px;margin-top:12px"></div>
-  <div id="agentDone"></div>
-  `}
+  <div class="composer pluswrap"><button class="btn ghost" id="plusBtn" onclick="togglePlus(event)" title="Quick actions" style="border-radius:14px;padding:10px 14px;flex:none">+</button><div class="plusmenu" id="plusMenu" style="display:none"><button onclick="quickAct('Build a lead funnel for my business')">\uD83C\uDFAF Build a funnel</button><button onclick="quickAct('Make a spokesperson video ad for my business')">\uD83C\uDFAC Make a video ad</button><button onclick="quickAct('Create an AI image for my marketing: ')">\uD83C\uDFA8 Create an image</button><button onclick="quickAct('Create a voiceover for this script: ')">\uD83C\uDF99\uFE0F Voiceover</button><button onclick="quickAct('Show my new leads')">\uD83D\uDC65 Show my leads</button><button onclick="quickAct('What is my affiliate referral link?')">\uD83D\uDD17 Referral link</button></div><textarea id="cin" rows="2" placeholder="Ask anything, or tell me what to build..." onkeydown="if(event.key=='Enter'&&!event.shiftKey){event.preventDefault();sendChat()}"></textarea><button class="btn" id="csend" onclick="sendChat()">Send</button></div>
   </div>`;
 }
-let assistMode='chat';
-function setAssistMode(m){assistMode=m;render()}
+function togglePlus(e){e.stopPropagation();const m=document.getElementById('plusMenu');const open=m.style.display!='none';document.querySelectorAll('.plusmenu').forEach(x=>x.style.display='none');m.style.display=open?'none':'grid';if(!open)setTimeout(()=>document.addEventListener('click',function c(){m.style.display='none';document.removeEventListener('click',c)}),10)}
+function quickAct(prompt){document.getElementById('plusMenu').style.display='none';sendChat(prompt)}
+
 /* ---------- Agent mode: watch the AI work step by step ---------- */
-let agentRunning=false;
-let agentAbort=null;
-function stopAgent(){if(agentAbort){agentAbort.abort();agentAbort=null}agentRunning=false;const g=document.getElementById('agentGo');if(g){g.textContent='Run';g.onclick=runAgent;g.classList.add('lime');g.classList.remove('danger')}setPresenceStatus('Ready',false);toast('You took over — agent stopped.')}
-async function runAgent(){
-  if(agentRunning)return;
-  const goal=(document.getElementById('agentIn')?.value||'').trim();
-  if(!goal){toast('Tell the agent what to get done.');return}
-  agentRunning=true;
-  agentAbort=new AbortController();
-  const stepsEl=document.getElementById('agentSteps'),doneEl=document.getElementById('agentDone');
-  stepsEl.innerHTML='';doneEl.innerHTML='';
-  const goBtn=document.getElementById('agentGo');
-  goBtn.textContent='Take over ⏹';goBtn.onclick=stopAgent;goBtn.classList.remove('lime');goBtn.classList.add('danger');
-  setPresenceStatus('Working on: '+goal.slice(0,40),true);
-  const addStep=(text,state)=>{
-    const d=document.createElement('div');
-    d.className='card';d.style.cssText='padding:10px 14px;display:flex;gap:10px;align-items:center';
-    d.innerHTML=`<span style="font-size:18px">${state=='done'?'✅':state=='work'?'⏳':'▫️'}</span><span>${esc(text)}</span>`;
-    stepsEl.appendChild(d);return d;
-  };
-  let cur=null;
-  try{
-    const r=await fetch('/api/assistant/agent',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({goal}),signal:agentAbort.signal});
-    if(r.status===429){const j=await r.json().catch(()=>({}));showUpgrade(j);throw new Error(j.error||'Daily AI limit reached.')}
-    if(!r.ok)throw new Error('Agent request failed.');
-    const rd=r.body.getReader(),dec=new TextDecoder();let buf='';
-    const flush=()=>{
-      let i;while((i=buf.indexOf('\n\n'))>=0){
-        const chunk=buf.slice(0,i);buf=buf.slice(i+2);
-        for(const line of chunk.split('\n')){
-          if(!line.startsWith('data:'))continue;
-          try{
-            const e=JSON.parse(line.slice(5));
-            if(e.type=='step'){if(cur)cur.querySelector('span:first-child').textContent='✅';cur=addStep(e.text,'work')}
-            else if(e.type=='tool'){cur=addStep(e.text,'work')}
-            else if(e.type=='tool_done'){if(cur)cur.querySelector('span:first-child').textContent='✅'}
-            else if(e.type=='done'){if(cur)cur.querySelector('span:first-child').textContent='✅';lastAgentGoal=goal;doneEl.innerHTML=`<div class="card" style="border-color:var(--lime);margin-top:12px"><b>Done</b><p style="white-space:pre-wrap">${esc(e.text)}</p>${isAdmin?'<button class="btn ghost" onclick="copyPaxHandoff()">Copy handoff for Pax</button>':''}</div>`}
-            else if(e.type=='error'){toast(e.text)}
-          }catch{}
-        }
-      }
-    };
-    while(true){const {done,value}=await rd.read();if(done)break;buf+=dec.decode(value,{stream:true});flush()}
-    flush();
-  }catch(err){if(err.message!=='Agent request failed.'&&!String(err.message).includes('Daily'))toast(err.message||'Agent failed.')}
-  agentRunning=false;agentAbort=null;const g=document.getElementById('agentGo');if(g){g.textContent='Run';g.onclick=runAgent;g.classList.add('lime');g.classList.remove('danger')}setPresenceStatus('Ready',false);
-}
-function copyPaxHandoff(){
-  const steps=[...document.querySelectorAll('#agentSteps .card span:last-child')].map(s=>s.textContent.trim());
-  const done=document.querySelector('#agentDone p')?.textContent.trim()||'';
-  const txt=`AIU Agent handoff\nGoal: ${lastAgentGoal}\nSteps:\n${steps.map(s=>'- '+s).join('\n')}\nResult:\n${done}`;
-  navigator.clipboard.writeText(txt).then(()=>toast('Handoff copied — paste it to Pax in chat.')).catch(()=>toast('Copy failed.'));
-}
-let lastAgentGoal='';
 let artifactTab='preview';
 function renderArtifact(){
   const el=$('#artifact'); if(!el) return;
@@ -273,39 +171,85 @@ function renderArtifact(){
 function dlArtifact(){if(!artifact)return;const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([artifact.code],{type:'text/html'}));a.download=(artifact.name||'project').toLowerCase().replace(/\W+/g,'-').slice(0,60)+'.html';a.click()}
 function stripArtifact(t){return String(t).replace(/```html-artifact\s*\n[\s\S]*?```/g,'').trim()}
 async function sendChat(prefill){
-  const inp=$('#cin'); const text=(prefill||(inp?inp.value:'')).trim(); if(!text) return;
-  if(inp) inp.value='';
-  msgs.push({role:'user',content:text}); render();
-  setPresenceStatus('Thinking…',true);
-  const log=$('#chatlog'); log.insertAdjacentHTML('beforeend','<div class="msg ai" id="thinking">Thinking…</div>'); log.scrollTop=log.scrollHeight;
-  $('#csend').disabled=true;
-  const r=await api('/api/assistant/chat',{message:text,conversationId:chatId,artifact});
-  $('#thinking')?.remove(); $('#csend').disabled=false; setPresenceStatus('Ready',false);
-  if(r.status==402){msgs.push({role:'assistant',content:'Your subscription is not active.'});showUpgrade(null,'inactive');}
-  else if(r.status==429&&r.data.limitHit){msgs.push({role:'assistant',content:r.data.error||'Daily limit reached.'});showUpgrade(r.data.plan,r.data.limit);}
-  else if(!r.ok){msgs.push({role:'assistant',content:r.data.error||'Something went wrong. Try again.'});}
-  else{
-    chatId=r.data.conversationId||chatId;
-    saveChatState();
-    let reply=String(r.data.reply||'');
-    const m=reply.match(/```html-artifact\s*\n([\s\S]*?)```/);
-    if(m){artifact={name:text.slice(0,48)||'project',code:m[1].trim()};reply=stripArtifact(reply)||'Done — your project is ready in the preview panel below.';}
+  if(agentRunning)return;
+  const inp=document.getElementById('cin');
+  const text=(prefill||(inp?inp.value:'')).trim();
+  if(!text)return;
+  if(inp)inp.value='';
+  document.getElementById('plusMenu').style.display='none';
+  msgs.push({role:'user',content:text});
+  const log=document.getElementById('chatlog');
+  log.insertAdjacentHTML('beforeend',`<div class="msg user">${esc(text).replace(/\n/g,'<br>')}</div><div class="msg ai workcard" id="workcard"><b>\u2699\uFE0F Working on it…</b><div class="worksteps" id="worksteps"></div></div>`);
+  log.scrollTop=log.scrollHeight;
+  const sendBtn=document.getElementById('csend'); if(sendBtn)sendBtn.disabled=true;
+  setPresenceStatus('Working…',true);
+  agentRunning=true; agentAbort=new AbortController();
+  const stepsEl=document.getElementById('worksteps');
+  let cur=null, stepCount=0;
+  const addStep=(txt,st)=>{
+    stepCount++;
+    const d=document.createElement('div');d.className='workstep';
+    d.innerHTML=`<span>${st=='done'?'\u2705':st=='work'?'\u23F3':'\u25AB\uFE0F'}</span><span>${esc(txt)}</span>`;
+    stepsEl.appendChild(d);log.scrollTop=log.scrollHeight;return d;
+  };
+  let finalText='', newConvId=null, errMsg='';
+  try{
+    const r=await fetch('/api/assistant/agent',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({goal:text,conversationId:chatId}),signal:agentAbort.signal});
+    if(r.status===429){const j=await r.json().catch(()=>({}));errMsg=j.error||'Daily AI limit reached.';showUpgrade(j);}
+    else if(!r.ok){errMsg='Something went wrong. Try again.'}
+    else{
+      const rd=r.body.getReader(),dec=new TextDecoder();let buf='';
+      const flush=()=>{
+        let i;while((i=buf.indexOf('\n\n'))>=0){
+          const chunk=buf.slice(0,i);buf=buf.slice(i+2);
+          for(const line of chunk.split('\n')){
+            if(!line.startsWith('data:'))continue;
+            try{
+              const e=JSON.parse(line.slice(5));
+              if(e.type=='step'){if(cur)cur.querySelector('span:first-child').textContent='\u2705';cur=addStep(e.text,'work')}
+              else if(e.type=='tool'){cur=addStep(e.text,'work')}
+              else if(e.type=='tool_done'){if(cur)cur.querySelector('span:first-child').textContent='\u2705'}
+              else if(e.type=='done'){if(cur)cur.querySelector('span:first-child').textContent='\u2705';finalText=String(e.text||'');if(e.conversationId)newConvId=e.conversationId}
+              else if(e.type=='error'){errMsg=e.text||'The agent hit a problem.'}
+            }catch{}
+          }
+        }
+      };
+      while(true){const {done,value}=await rd.read();if(done)break;buf+=dec.decode(value,{stream:true});flush()}
+      flush();
+    }
+  }catch(err){ if(!errMsg) errMsg='Agent failed. Try again.'; }
+  agentRunning=false;agentAbort=null;
+  if(sendBtn)sendBtn.disabled=false;
+  setPresenceStatus('Ready',false);
+  const wc=document.getElementById('workcard');
+  if(errMsg){
+    if(wc)wc.remove();
+    msgs.push({role:'assistant',content:errMsg});
+  }else{
+    if(newConvId){chatId=newConvId;saveChatState()}
+    let reply=finalText||'Done.';
+    const ma=reply.match(/```html-artifact\s*\n([\s\S]*?)```/);
+    if(ma){artifact={name:text.slice(0,48)||'project',code:ma[1].trim()};reply=stripArtifact(reply)||'Done — your project is ready in the preview panel below.';}
+    // collapse the working card into a summary
+    if(wc)wc.innerHTML=`<span style="color:var(--stone);font-size:13px">\u2705 Done${stepCount?` · ${stepCount} step${stepCount>1?'s':''}`:''}</span>`;
     msgs.push({role:'assistant',content:reply});
     loadConvos();
   }
   render();
-  const l2=$('#chatlog'); if(l2) l2.scrollTop=l2.scrollHeight;
+  const l2=document.getElementById('chatlog'); if(l2)l2.scrollTop=l2.scrollHeight;
   const lim=await api('/api/assistant/limits'); if(lim.ok){limits=lim.data;renderSide()}
 }
-function newChat(){chatId=null;msgs=[];artifact=null;saveChatState();render()}
+let agentRunning=false, agentAbort=null;
+function stopAgent(){if(agentAbort){agentAbort.abort();agentAbort=null}agentRunning=false;setPresenceStatus('Ready',false);toast('You took over — agent stopped.')}
+function newChat(){chatId=null;msgs=[];artifact=null;saveChatState();view='chat';render()}
 async function loadConvos(){
   const r=await api('/api/assistant/conversations');
   convos=r.ok?r.data:[];
-  const s=$('#convosel');
-  if(s&&view=='assist')s.innerHTML='<option value="">Past conversations…</option>'+convos.map(c=>`<option value="${c.id}"${c.id==chatId?' selected':''}>${esc(c.title)} · ${esc(dshort(c.updatedAt))}</option>`).join('');
+  renderSide();
 }
 async function openConvo(id){
-  if(!id)return;
+  if(!id)return;view='chat';
   const r=await api('/api/assistant/conversations/'+id);
   if(!r.ok){toast('Could not open that conversation');loadConvos();return}
   chatId=r.data.id; artifact=null; saveChatState();
@@ -336,51 +280,15 @@ async function funLoad(){
   const pr=await api('/api/prospects'); PR=pr.ok?pr.data:[];
   const mx=FL.reduce((m,l)=>Math.max(m,l.id),0);
   const fresh=newLeadCount();
-  if(view=='funnels'){
-    lastLeadSeen=mx; try{localStorage.setItem('aiu_lastLead',String(mx))}catch(e){}
-    if(fresh>0)toast(`You have ${fresh} new lead${fresh>1?'s':''} — nice work.`);
-    if(fresh>0||funFirst){funFirst=false;render()}
-  } else if(fresh>0||lastLeadSeen==0){
-    renderSide();
-  }
+  if(fresh>0){toast(`You have ${fresh} new lead${fresh>1?'s':''} — nice work. Ask me to show them.`);}
+  lastLeadSeen=mx; try{localStorage.setItem('aiu_lastLead',String(mx))}catch(e){}
 }
 setInterval(()=>{if(signedIn)funLoad()},30000);
-function vFunnels(){
-  return `<div class="fade"><h1>Funnels <i>& leads</i></h1>
-  <p class="sub">Ask the assistant to build a funnel, or manage everything below. Claiming a lead moves it to your Pipeline and removes it from the available pool.</p>
-  <div class="card"><b>My funnels</b>
-  ${F.map(f=>`<div class="row" style="padding:10px 0;border-top:1px solid var(--line);justify-content:space-between"><div><b>${esc(f.title)}</b> <span class="pill"><span class="dot ${f.status=='live'?'':'off'}"></span>${esc(f.status)}</span><div style="color:var(--stone);font-size:13px">${esc(f.industry)} · ${f.views||0} views · ${f.leads||0} leads${(f.views||0)>0?` · ${f.conversion||0}% opt-in`:''} · <span class="mono">${esc(f.url)}</span></div></div>
-  <div class="row"><button class="btn ghost" onclick="window.open('${esc(f.url)}','_blank','noopener')">Open</button><button class="btn ghost" onclick="cp('${esc(f.url)}')">Copy link</button>${f.status=='live'?`<button class="btn ghost" onclick="pubFunnel(${f.id},'draft')">Unpublish</button>`:`<button class="btn" onclick="pubFunnel(${f.id},'live')">Publish</button>`}<button class="btn danger" onclick="delFunnel(${f.id})">Delete</button></div></div>`).join('')||'<p style="color:var(--stone)">No funnels yet — ask the assistant to build one.</p>'}</div>
-  <div class="card"><b>Available leads <span class="pill">${FL.length}</span></b>
-  ${FL.map(l=>`<div class="row" style="padding:10px 0;border-top:1px solid var(--line);justify-content:space-between"><div><b>${esc(l.name)}</b><div style="color:var(--stone);font-size:13px">${esc([l.email,l.phone,[l.city,l.state].filter(Boolean).join(', ')].filter(Boolean).join(' · '))}</div></div><button class="btn lime" onclick="claimLead(${l.id})">Claim</button></div>`).join('')||'<p style="color:var(--stone)">No leads yet. Publish a funnel and share its link.</p>'}</div>
-  <div class="card"><b>Pipeline <span class="pill">${PR.length}</span></b>
-  ${PR.map(p=>`<div class="row" style="padding:8px 0;border-top:1px solid var(--line);justify-content:space-between"><div><b>${esc(p.businessName)}</b> <span class="pill">${esc(p.stage)}</span><div style="color:var(--stone);font-size:13px">${esc([p.contactName,p.email,p.phone].filter(Boolean).join(' · '))}</div></div>${p.dealValue?`<span class="mono">${money(p.dealValue)}</span>`:''}</div>`).join('')||'<p style="color:var(--stone)">Claim a lead and it lands here.</p>'}</div></div>`;
-}
-async function pubFunnel(id,status){await api('/api/funnels/'+id+'/publish',{status});funLoad()}
-async function delFunnel(id){if(!confirm('Delete this funnel and its leads?'))return;await fetch('/api/funnels/'+id,{method:'DELETE'});funLoad()}
-async function claimLead(id){const r=await api('/api/funnel-leads/'+id+'/claim',{});if(r.ok){toast('Claimed — moved to your Pipeline.');funLoad()}else toast(r.data.error||'Claim failed.')}
-
-/* ---------- videos ---------- */
-let VIDS=[],VIDSERR='',VIDQUOTA=null,VIDUNLIMITED=false;
-async function vidLoad(){try{const r=await api('/api/videos');if(r.ok){VIDS=r.data.videos||[];VIDQUOTA=r.data.quota||null;VIDUNLIMITED=!!r.data.unlimited;VIDSERR=''}else{VIDS='err';VIDSERR=r.data&&r.data.error||'Could not load.'}}catch(e){VIDS='err';VIDSERR='Could not load.'}const b=document.getElementById('vidbody');if(b&&view=='videos')b.innerHTML=vidListHtml()}
 function vidListHtml(){
   return VIDS===null?'<div class="card">Loading...</div>':VIDS==='err'?`<div class="card"><b>Couldn't load videos</b><p style="color:var(--stone)">${esc(VIDSERR)}</p><div class="row" style="margin-top:10px"><button class="btn lime" onclick="VIDS=null;VIDSERR='';render();vidLoad()">Try again</button></div></div>`
   :VIDS.length?VIDS.map(v=>`<div class="card"><div class="row" style="justify-content:space-between"><div><b>${esc(v.title||'Untitled')}</b> <span class="pill">${esc(v.format||'')}</span> <span class="pill">${esc(v.status||'')}</span></div>${v.status=='completed'&&v.videoUrl?`<button class="btn lime" onclick="window.open('${esc(v.videoUrl)}','_blank')">Watch</button>`:`<button class="btn ghost" onclick="vidCheck(${v.id})">Refresh</button>`}</div>${v.status=='failed'?`<p style="color:#f66">${esc(v.error||'Rendering failed.')}</p>`:v.status!='completed'?'<p class="sub">Rendering — check back in a few minutes.</p>':''}</div>`).join('')
   :'<div class="card"><p style="color:var(--stone)">No videos yet. Write a script below and your AI spokesperson will record it.</p></div>';
 }
-function vVideos(){
-  const quotaLine=VIDUNLIMITED?'<span class="pill" style="border-color:var(--lime);color:var(--lime)">Unlimited</span>':VIDQUOTA?`<span class="pill">${VIDQUOTA.used}/${VIDQUOTA.limit} this month</span>`:'';
-  const list=vidListHtml();
-  return `<div class="fade"><h1>Vi<i>deos</i></h1><p class="sub">AI spokesperson videos — a talking-head avatar delivers your script. Great for ads, landing pages and social. ${quotaLine}</p>
-  <div class="card"><b>New spokesperson video</b><div style="display:grid;gap:8px;margin-top:10px"><input id="vidTitle" placeholder="Title (optional)" maxlength="120"><textarea id="vidScript" placeholder="Exactly what the avatar should say (keep it under ~300 words)..." maxlength="2000" style="min-height:90px"></textarea><div class="row"><select id="vidFormat" style="background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px;color:var(--txt)"><option value="landscape">Landscape — YouTube / site</option><option value="portrait">Portrait — TikTok / Reels / Shorts</option><option value="square">Square — Instagram</option></select><button class="btn lime" onclick="vidCreate()">Generate video</button></div></div></div>
-  <div id="vidbody">${list}</div></div>`;
-}
-async function vidCreate(){const t=document.getElementById('vidTitle'),s=document.getElementById('vidScript'),f=document.getElementById('vidFormat');if(!s.value.trim()){toast('Write the script first.');return}const r=await api('/api/videos',{script:s.value,title:t.value,format:f.value});if(r.ok){toast('Video rendering started — check back in a few minutes.');s.value='';t.value='';vidLoad()}else toast(r.data.error||'Could not start the video.')}
-async function vidCheck(id){const r=await api('/api/videos/'+id);if(r.ok)vidLoad();else toast(r.data.error||'Check failed.')}
-
-/* ---------- studio ---------- */
-let STUDIO=[],STUDIOERR='',STUDIOQUOTA=null,STUDIOUNLIMITED=false;
-async function studioLoad(){try{const r=await api('/api/studio/jobs');if(r.ok){STUDIO=r.data.jobs||[];STUDIOQUOTA=r.data.quota||null;STUDIOUNLIMITED=!!r.data.unlimited;STUDIOERR=''}else{STUDIO='err';STUDIOERR=r.data&&r.data.error||'Could not load.'}}catch(e){STUDIO='err';STUDIOERR='Could not load.'}const b=document.getElementById('studiobody');if(b&&view=='studio')b.innerHTML=studioListHtml()}
 function studioListHtml(){
   return STUDIO===null?'<div class="card">Loading...</div>':STUDIO==='err'?`<div class="card"><b>Couldn't load</b><p style="color:var(--stone)">${esc(STUDIOERR)}</p><div class="row" style="margin-top:10px"><button class="btn lime" onclick="STUDIO=null;STUDIOERR='';render();studioLoad()">Try again</button></div></div>`
   :STUDIO.length?STUDIO.map(j=>{const preview=j.kind=='image'?`<img src="${esc(j.resultUrl)}" style="max-width:100%;border-radius:10px;margin-top:8px" loading="lazy">`:j.kind=='tts'?`<audio controls src="${esc(j.resultUrl)}" style="width:100%;margin-top:8px"></audio>`:`<img src="${esc(j.resultUrl)}" style="max-width:100%;border-radius:10px;margin-top:8px" loading="lazy">`;
@@ -388,32 +296,12 @@ function studioListHtml(){
     return `<div class="card"><div class="row" style="justify-content:space-between"><div><b>${label}</b> <span class="pill">${new Date(j.createdAt).toLocaleDateString()}</span></div><button class="btn ghost" onclick="window.open('${esc(j.resultUrl)}','_blank')">Open</button></div><p class="sub">${esc((j.prompt||'').slice(0,140))}</p>${preview}</div>`}).join('')
   :'<div class="card"><p style="color:var(--stone)">Nothing created yet. Generate an image, a voiceover, or remove a background below.</p></div>';
 }
-function vStudio(){
-  const quotaLine=STUDIOUNLIMITED?'<span class="pill" style="border-color:var(--lime);color:var(--lime)">Unlimited</span>':STUDIOQUOTA?`<span class="pill">${STUDIOQUOTA.used}/${STUDIOQUOTA.limit} this month</span>`:'';
-  const jobs=studioListHtml();
-  return `<div class="fade"><h1>Stu<i>dio</i></h1><p class="sub">AI creative tools — images, voiceovers, background removal and content clipping for your ads and funnels. ${quotaLine}</p>
-  <div class="card"><b>Generate an image</b><p class="sub">Ad creatives, funnel heroes, social posts.</p><div style="display:grid;gap:8px;margin-top:10px"><textarea id="stImgPrompt" placeholder="Describe the image — e.g. 'bold product shot of a black gaming headset on neon background'..." maxlength="1000" style="min-height:70px"></textarea><div class="row" style="flex-wrap:wrap;gap:8px"><select id="stImgStyle" style="background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px;color:var(--txt)"><option value="">No style</option><option value="photorealistic">Photorealistic</option><option value="cinematic">Cinematic</option><option value="cartoon">Cartoon</option><option value="anime">Anime</option><option value="oilpainting">Oil painting</option><option value="watercolor">Watercolor</option><option value="cyberpunk">Cyberpunk</option><option value="minimal">Minimal</option><option value="threed">3D render</option><option value="comic">Comic book</option></select><select id="stImgSize" style="background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px;color:var(--txt)"><option value="1024x1024">Square</option><option value="1792x1024">Landscape</option><option value="1024x1792">Portrait</option></select><select id="stImgQuality" style="background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px;color:var(--txt)"><option value="standard">Standard</option><option value="hd">HD</option></select><button class="btn lime" onclick="studioImage()">Generate image</button></div></div></div>
-  <div class="card"><b>Voiceover</b><p class="sub">Turn text into spoken audio for ads and videos.</p><div style="display:grid;gap:8px;margin-top:10px"><textarea id="stTtsText" placeholder="Paste the script for the voiceover..." maxlength="4000" style="min-height:70px"></textarea><div class="row" style="flex-wrap:wrap;gap:8px"><select id="stTtsVoice" style="background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px;color:var(--txt)"><option value="alloy">Alloy — neutral</option><option value="nova">Nova — warm female</option><option value="onyx">Onyx — deep male</option><option value="echo">Echo — clear male</option><option value="fable">Fable — storytelling</option><option value="shimmer">Shimmer — bright female</option></select><select id="stTtsSpeed" style="background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px;color:var(--txt)"><option value="1">Normal speed</option><option value="0.75">Slower</option><option value="1.25">Faster</option><option value="1.5">Much faster</option></select><button class="btn lime" onclick="studioTts()">Generate voiceover</button></div></div></div>
-  <div class="card"><b>Remove background</b><p class="sub">Product photos and headshots, transparent PNG in seconds.</p><div style="display:grid;gap:8px;margin-top:10px"><input id="stBgUrl" placeholder="Paste an image URL..." style="background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px;color:var(--txt)"><div class="row"><button class="btn lime" onclick="studioBg()">Remove background</button></div></div></div>
-  <div class="card" style="border-color:var(--lime)"><b>✂️ Content Clipper</b><p class="sub">Upload a long video or podcast — AI finds the best moments and cuts them into shareable clips or episode segments.</p><div style="display:grid;gap:8px;margin-top:10px"><input type="file" id="clipFile" accept="video/*,audio/*" style="background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px;color:var(--txt)"><input id="clipTitle" placeholder="Title (optional)..." maxlength="120" style="background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px;color:var(--txt)"><div class="row" style="flex-wrap:wrap;gap:8px"><select id="clipMode" style="background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px;color:var(--txt)"><option value="highlights">Highlight clips</option><option value="episodes">Episode segments</option></select><select id="clipCount" style="background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px;color:var(--txt)"><option value="3">3 clips</option><option value="5" selected>5 clips</option><option value="8">8 clips</option><option value="12">12 clips</option></select><select id="clipLength" style="background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px;color:var(--txt)"><option value="short">Short (30-60s)</option><option value="medium" selected>Medium (2-5 min)</option><option value="long">Long (5-15 min)</option></select><button class="btn lime" onclick="clipUpload()">Upload &amp; clip</button></div><div id="clipJobs" style="margin-top:8px"></div></div></div>
-  <div id="studiobody">${jobs}</div></div>`;
-}
-async function studioImage(){const p=document.getElementById('stImgPrompt');if(!p.value.trim()){toast('Describe the image first.');return}toast('Generating image...');const r=await api('/api/studio/image',{prompt:p.value,style:document.getElementById('stImgStyle').value,size:document.getElementById('stImgSize').value,quality:document.getElementById('stImgQuality').value});if(r.ok){p.value='';studioLoad()}else toast(r.data.error||'Image generation failed.')}
-async function studioTts(){const t=document.getElementById('stTtsText'),v=document.getElementById('stTtsVoice');if(!t.value.trim()){toast('Enter the text first.');return}toast('Generating voiceover...');const r=await api('/api/studio/tts',{text:t.value,voice:v.value,speed:parseFloat(document.getElementById('stTtsSpeed').value)||1});if(r.ok){t.value='';studioLoad()}else toast(r.data.error||'Voiceover failed.')}
-let CLIPJOBS=[];
-async function clipUpload(){const f=document.getElementById('clipFile').files[0];if(!f){toast('Choose a video or audio file first.');return}if(f.size>500*1024*1024){toast('File is too large. Maximum 500MB.');return}toast('Uploading...');const fd=new FormData();fd.append('file',f);fd.append('title',document.getElementById('clipTitle').value||f.name);const up=await fetch('/api/content/upload',{method:'POST',body:fd,credentials:'include'});const uj=await up.json().catch(()=>({}));if(!up.ok){toast(uj.error||'Upload failed.');return}toast('Analyzing — finding the best moments. This takes a few minutes.');const an=await api('/api/content/analyze/'+uj.id,{mode:document.getElementById('clipMode').value,clipCount:parseInt(document.getElementById('clipCount').value),clipLength:document.getElementById('clipLength').value});if(!an.ok){toast(an.data.error||'Analysis failed.');return}document.getElementById('clipFile').value='';document.getElementById('clipTitle').value='';clipLoad();const iv=setInterval(async()=>{await clipLoad();const j=CLIPJOBS.find(x=>x.id===uj.id);if(!j||['done','failed'].includes(j.status)){clearInterval(iv);if(j&&j.status==='done')toast('Clips are ready!');}},8000)}
-async function clipLoad(){try{const r=await api('/api/content/jobs');if(r.ok){CLIPJOBS=r.data||[];const d=document.getElementById('clipJobs');if(d)d.innerHTML=CLIPJOBS.slice(0,10).map(j=>{const st={uploaded:'Uploaded',transcribing:'Transcribing audio...',analyzing:'Finding highlights...',clipping:'Cutting clips...',done:'Done',failed:'Failed'}[j.status]||j.status;const clips=(j.clips||[]).map(c=>{const mm=String(Math.floor((c.end-c.start)/60)).padStart(1,'0'),ss=String(Math.floor((c.end-c.start)%60)).padStart(2,'0');return `<div class="row" style="padding:8px 0;border-top:1px solid var(--line);justify-content:space-between;align-items:center"><div><b style="font-size:14px">${esc(c.title)}</b><div class="mono" style="font-size:12px;color:var(--stone)">${mm}:${ss}</div></div>${j.isVideo?`<video src="${c.url}" controls style="max-width:180px;border-radius:8px"></video>`:`<audio src="${c.url}" controls style="max-width:180px"></audio>`}<a class="btn ghost" style="padding:6px 14px;font-size:13px" href="${c.url}" download>Download</a></div>`}).join('');const hls=(j.highlights||[]).map(h=>`<span class="pill" style="margin:2px" title="${esc(h.summary)}">${esc(h.title)}</span>`).join('');return `<div style="border:1px solid var(--line);border-radius:12px;padding:12px;margin-top:8px"><div class="row" style="justify-content:space-between"><b>${esc(j.title)}</b><span class="pill">${st}</span></div>${j.status==='failed'?`<p style="color:var(--danger);font-size:13px">${esc(j.error||'Failed')}</p>`:''}${hls?`<div style="margin-top:6px">${hls}</div>`:''}${clips}</div>`}).join('')||'<p style="color:var(--stone);font-size:13px">No clips yet.</p>'}}catch(e){}}
-async function studioBg(){const u=document.getElementById('stBgUrl');if(!u.value.trim()){toast('Paste an image URL first.');return}toast('Removing background...');const r=await api('/api/studio/bgremove',{imageUrl:u.value});if(r.ok){u.value='';studioLoad()}else toast(r.data.error||'Background removal failed.')}
-
-/* ---------- affiliates ---------- */
-let AFF=null,AFFERR='';
-async function affLoad(){try{const r=await api('/api/affiliates/me');AFF=r.ok?r.data:'err';AFFERR=r.ok?'':(r.data&&r.data.error||'Could not load.')}catch(e){AFF='err';AFFERR='Could not load.'}const b=document.getElementById('affbody');if(b&&view=='aff')b.innerHTML=affBodyHtml()}
 function affBodyHtml(){
   return AFF===null?'<div class="card">Loading...</div>':AFF==='err'?`<div class="card"><b>Couldn't load affiliates</b><p style="color:var(--stone)">${esc(AFFERR)}</p><div class="row" style="margin-top:10px"><button class="btn lime" onclick="AFF=null;AFFERR='';render();affLoad()">Try again</button></div></div>`:(AFF.affiliate?affDash(AFF):affJoin());
 }
 /* ---------- AI Tools hub ---------- */
 let TOOLS_SVCS=[];
-async function toolsLoad(){try{const r=await api('/api/integrations');TOOLS_SVCS=r.ok?(r.data.services||[]):[]}catch(e){TOOLS_SVCS=[]}const b=document.getElementById('toolsbody');if(b&&view=='tools')b.innerHTML=toolsHtml()}
+async function toolsLoad(){try{const r=await api('/api/integrations');TOOLS_SVCS=r.ok?(r.data.services||[]):[]}catch(e){TOOLS_SVCS=[]}const b=document.getElementById('toolsbody');if(b)b.innerHTML=toolsHtml();const m=document.getElementById('setTools');if(m)m.innerHTML=toolsHtml()}
 function toolsHtml(){
   if(!TOOLS_SVCS.length)return '<p class="sub">Could not load services.</p>';
   return TOOLS_SVCS.map(s=>{
@@ -450,25 +338,6 @@ function subsHtml(){
 async function subAdd(){const n=document.getElementById('subName');if(!n.value.trim()){toast('Name the service.');return}const r=await api('/api/ai-subscriptions',{serviceName:n.value,planName:document.getElementById('subPlan').value,costCents:Math.round(parseFloat(document.getElementById('subCost').value||'0')*100),billingCycle:document.getElementById('subCycle').value,renewalDate:document.getElementById('subRenew').value||null,cancelUrl:document.getElementById('subCancel').value,notes:document.getElementById('subNotes').value});if(r.ok){toast('Tracked!');subsLoad();['subName','subPlan','subCost','subRenew','subCancel','subNotes'].forEach(id=>document.getElementById(id).value='')}else toast(r.data.error||'Could not add.')}
 async function subCancel(id){const r=await api('/api/ai-subscriptions/'+id+'/cancel',{},'POST');if(r.ok)subsLoad()}
 async function subDel(id){if(!confirm('Remove this subscription?'))return;const r=await api('/api/ai-subscriptions/'+id,null,'DELETE');if(r.ok)subsLoad()}
-function vTools(){
-  const xi=TOOLS_SVCS.find(s=>s.id==='elevenlabs'&&s.connected);
-  const px=TOOLS_SVCS.find(s=>s.id==='perplexity'&&s.connected);
-  const gm=TOOLS_SVCS.find(s=>s.id==='gemini'&&s.connected);
-  const gk=TOOLS_SVCS.find(s=>s.id==='grok'&&s.connected);
-  return `<div class="fade"><h1>AI <i>Tools</i></h1><p class="sub">Every AI the app can use — connect new services, use their tools, and track what you're paying for.</p>
-  <div class="card" style="border-color:var(--lime)"><b>💳 My AI Subscriptions</b><p class="sub">Track every AI tool you pay for. Renewal warnings appear here before you're charged.</p><div id="subsbody" style="margin:10px 0">${subsHtml()}</div><div style="display:grid;gap:8px;margin-top:10px"><div class="row" style="gap:8px;flex-wrap:wrap"><input id="subName" placeholder="Service (e.g. OpenGen)" style="flex:2;background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px;color:var(--txt)"><input id="subPlan" placeholder="Plan" style="flex:1;background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px;color:var(--txt)"><input id="subCost" type="number" min="0" step="0.01" placeholder="$/period" style="flex:1;background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px;color:var(--txt)"></div><div class="row" style="gap:8px;flex-wrap:wrap"><select id="subCycle" style="background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px;color:var(--txt)"><option value="monthly">Monthly</option><option value="yearly">Yearly</option><option value="trial">Trial</option><option value="one_time">One-time</option></select><input id="subRenew" type="date" style="background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px;color:var(--txt)"><input id="subCancel" placeholder="Cancel URL (optional)" style="flex:2;background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px;color:var(--txt)"></div><input id="subNotes" placeholder="Notes (optional)" style="background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px;color:var(--txt)"><div class="row"><button class="btn lime" onclick="subAdd()">Track subscription</button></div></div></div>
-  ${xi?`<div class="card"><b>🎙️ Premium Voiceover</b><p class="sub">ElevenLabs — ultra-realistic voices.</p><div style="display:grid;gap:8px;margin-top:10px"><textarea id="xiText" placeholder="Paste the script..." maxlength="5000" style="min-height:70px"></textarea><div class="row"><button class="btn lime" onclick="xiTts()">Generate premium voiceover</button></div></div></div>`:''}
-  ${px?`<div class="card"><b>🔍 AI Search</b><p class="sub">Perplexity — answers with cited sources.</p><div style="display:grid;gap:8px;margin-top:10px"><input id="pxQ" placeholder="Ask anything to research..." style="background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px;color:var(--txt)"><div class="row"><button class="btn lime" onclick="pxSearch()">Search</button></div><div id="pxOut"></div></div></div>`:''}
-  ${gm?`<div class="card"><b>✨ Gemini</b><p class="sub">Google's AI chat.</p><div style="display:grid;gap:8px;margin-top:10px"><input id="alt-gemini" placeholder="Message Gemini..." style="background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px;color:var(--txt)"><div class="row"><button class="btn lime" onclick="altChat('gemini')">Send</button></div><div id="altout-gemini"></div></div></div>`:''}
-  ${gk?`<div class="card"><b>𝕏 Grok</b><p class="sub">xAI chat with real-time X knowledge.</p><div style="display:grid;gap:8px;margin-top:10px"><input id="alt-grok" placeholder="Message Grok..." style="background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px;color:var(--txt)"><div class="row"><button class="btn lime" onclick="altChat('grok')">Send</button></div><div id="altout-grok"></div></div></div>`:''}
-  <div class="card"><b>🔌 Connected Services</b><p class="sub">Every AI the app knows. ${isAdmin?'Paste a key to connect a new one.':''}</p><div id="toolsbody" style="margin-top:10px">${toolsHtml()}</div></div>
-  </div>`;
-}
-function vAff(){
-  const body=affBodyHtml();
-  return `<div class="fade"><h1>Affi<i>liates</i></h1><p class="sub">Share your link. Start at 15% and climb to 50% as you refer more — paid out monthly once you hit $50.</p>
-  <div id="affbody">${body}</div></div>`;
-}
 function affJoin(){return `<div class="card"><b>Join free</b><p style="color:var(--stone)">Get your personal referral link in one tap. Anyone who buys through it is tracked for 60 days. You start at <b>15% commission</b> — refer more and your rate climbs, up to 50% for life.</p><div style="display:grid;gap:8px;margin-top:10px"><input id="affPhone" placeholder="Phone (for payouts)" style="background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px;color:var(--txt)"><input id="affAddr" placeholder="Mailing address (for payouts)" style="background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px;color:var(--txt)"></div><div class="row" style="margin-top:10px"><button class="btn lime" onclick="affDoJoin()">Get my referral link</button></div></div>`+affPartnerCard()}
 async function affDoJoin(){const r=await api('/api/affiliates/join',{phone:document.getElementById('affPhone')?.value||'',address:document.getElementById('affAddr')?.value||''});if(r.ok)affLoad();else toast(r.data.error||'Could not join.')}
 function affDash(A){const a=A.affiliate,s=A.stats;
@@ -552,16 +421,93 @@ async function subCharge(userId){
 }
 async function ideaStatus(id,status){await fetch('/api/admin/ideas/'+id+'/status',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({status})});admLoad()}
 
+
+/* ---------- Assistant setup modal ---------- */
+const AVATAR_PRESETS=[
+ `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256"><rect width="256" height="256" rx="128" fill="#0d9488"/><circle cx="128" cy="110" r="52" fill="#5eead4"/><path d="M40 220c20-52 52-78 88-78s68 26 88 78" fill="#5eead4"/></svg>`,
+ `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256"><rect width="256" height="256" rx="128" fill="#0369a1"/><circle cx="96" cy="100" r="34" fill="#7dd3fc"/><circle cx="162" cy="100" r="34" fill="#7dd3fc"/><path d="M60 210c14-40 44-60 68-60s54 20 68 60" fill="#7dd3fc"/></svg>`,
+ `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256"><rect width="256" height="256" rx="128" fill="#6d28d9"/><path d="M128 40l24 62 66 4-52 42 16 66-54-36-54 36 16-66-52-42 66-4z" fill="#c4b5fd"/></svg>`,
+ `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256"><rect width="256" height="256" rx="128" fill="#15803d"/><circle cx="128" cy="128" r="70" fill="none" stroke="#86efac" stroke-width="18"/><circle cx="128" cy="128" r="26" fill="#86efac"/></svg>`,
+];
+const PERSONA_PRESETS={
+ friendly:"A warm, encouraging professional. Explains things clearly, celebrates wins, and keeps things moving. Treats the user like a capable partner.",
+ shooter:"Direct and no-fluff. Tells it like it is, respects the user's time, and gets straight to the point. No filler, no hype.",
+ hype:"High-energy motivator. Pushes the user to take action, think bigger, and move fast. Celebrates every win loudly.",
+ calm:"Patient and thoughtful. Breaks things down step by step, never rushes, and makes complex things feel simple.",
+};
+function setPresetPers(k){const el=document.getElementById('pPersonality');if(el){el.value=PERSONA_PRESETS[k]||'';el.focus()}}
+function openSettings(){
+  let bg=document.getElementById('setModal');
+  if(!bg){
+    bg=document.createElement('div');bg.id='setModal';bg.className='modal-bg';bg.style.display='none';
+    bg.innerHTML=`<div class="modal">
+      <div class="row" style="justify-content:space-between;margin-bottom:16px"><h2 style="margin:0">Assistant setup</h2><button class="btn ghost" onclick="closeSettings()">\u2715</button></div>
+      <div class="setsec"><h3>Avatar</h3><p class="sub">Pick one or upload your own — it shows on your assistant and can be used for video ads.</p>
+        <div class="preset-grid" id="avPresets"></div>
+        <div class="row" style="gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap">
+          <img id="avatarPrev" style="width:56px;height:56px;border-radius:50%;object-fit:cover;border:2px solid var(--lime);display:none">
+          <input type="file" id="avatarFile" accept="image/*" style="flex:1;min-width:160px;background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:8px;color:var(--txt);font-size:12px">
+          <button class="btn" onclick="uploadAvatar()">Upload</button>
+          <button class="btn ghost" style="font-size:12px" onclick="removeAvatar()">Remove</button>
+        </div>
+      </div>
+      <div class="setsec"><h3>Name</h3><input id="pName" placeholder="Name your assistant" maxlength="30"></div>
+      <div class="setsec"><h3>Personality</h3><p class="sub">Pick a style or write your own.</p>
+        <div class="preset-row"><button class="preset-btn" onclick="setPresetPers('friendly')">Friendly Pro</button><button class="preset-btn" onclick="setPresetPers('shooter')">Straight Shooter</button><button class="preset-btn" onclick="setPresetPers('hype')">Hype Coach</button><button class="preset-btn" onclick="setPresetPers('calm')">Calm Advisor</button></div>
+        <textarea id="pPersonality" placeholder="Describe how you want your AI to be..." maxlength="2000" style="min-height:80px"></textarea>
+        <div class="row" style="gap:8px;align-items:center;margin-top:8px"><span class="sub">Tone:</span><select id="pFilter" style="max-width:220px"><option value="clean">Clean</option><option value="raw">Raw / unfiltered</option></select></div>
+        <p class="sub" style="font-size:11px">Raw lets it swear, roast, and talk freely — like a real person with no filter. It still won't do hate, harassment, or harm. Ever.</p>
+      </div>
+      <div class="setsec"><h3>Voice</h3>
+        <div class="row" style="gap:8px;align-items:center;flex-wrap:wrap">
+          <select id="pVoiceProvider" onchange="voiceProviderChanged()" style="max-width:200px"><option value="openai">Stock voices</option><option value="elevenlabs">ElevenLabs</option></select>
+          <select id="pVoice" style="max-width:200px"><option value="alloy">Alloy</option><option value="echo">Echo</option><option value="fable">Fable</option><option value="onyx">Onyx</option><option value="nova">Nova</option><option value="shimmer">Shimmer</option></select>
+          <select id="pElVoice" style="display:none;max-width:220px"><option value="">Loading voices…</option></select>
+          <button class="btn ghost" onclick="previewVoice()">\uD83D\uDD0A Preview voice</button>
+        </div>
+        <p class="sub" style="font-size:12px">Want it to sound like <b>you</b>? <a href="#" onclick="showCloneBox();return false" style="color:var(--lime)">Upload your own voice below</a> and we'll clone it.</p>
+        <div id="cloneBox" style="display:none;border:1px dashed var(--line);border-radius:10px;padding:12px">
+          <div class="sub" style="margin-bottom:8px"><b>Clone a voice</b> — upload 1–3 clear audio clips (30+ seconds each, no background noise). Use a voice you have the right to clone.</div>
+          <div class="row" style="gap:8px;flex-wrap:wrap;align-items:center">
+            <input id="cloneName" placeholder="Voice name" maxlength="60" style="min-width:160px">
+            <input id="cloneFiles" type="file" accept="audio/*" multiple style="color:var(--muted)">
+            <button class="btn ghost" onclick="cloneVoice()">\uD83C\uDF99 Clone voice</button>
+          </div>
+          <div id="cloneStatus" class="sub"></div>
+        </div>
+      </div>
+      <div class="setsec"><h3>Connections</h3><p class="sub">Connect AI services with your own keys.</p><div id="setTools"><div class="card">Loading...</div></div></div>
+      <div class="row"><button class="btn lime" onclick="savePersonality().then(()=>{closeSettings();toast('Assistant updated.')})">Save</button></div>
+    </div>`;
+    document.body.appendChild(bg);
+    bg.addEventListener('click',e=>{if(e.target===bg)closeSettings()});
+    document.getElementById('avPresets').innerHTML=AVATAR_PRESETS.map((s,i)=>`<img class="preset-av" data-i="${i}" src="data:image/svg+xml;charset=utf-8,${encodeURIComponent(s)}" onclick="pickPresetAvatar(${i})" title="Use this avatar">`).join('');
+  }
+  fillPersonality();
+  if(typeof toolsLoad==='function')toolsLoad();
+  bg.style.display='flex';
+}
+function closeSettings(){const bg=document.getElementById('setModal');if(bg)bg.style.display='none'}
+async function pickPresetAvatar(i){
+  try{
+    const img=new Image();
+    await new Promise((res,rej)=>{img.onload=res;img.onerror=rej;img.src='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(AVATAR_PRESETS[i])});
+    const cv=document.createElement('canvas');cv.width=cv.height=256;
+    cv.getContext('2d').drawImage(img,0,0,256,256);
+    const blob=await new Promise(r=>cv.toBlob(r,'image/png'));
+    const fd=new FormData();fd.append('avatar',blob,'preset.png');
+    toast('Uploading...');
+    const r=await fetch('/api/settings/avatar',{method:'POST',body:fd,credentials:'include'});
+    const j=await r.json().catch(()=>({}));
+    if(r.ok){ASSISTANT_PERSONALITY.hasAvatar=true;updatePresence();fillPersonality();toast('Avatar updated!')}else toast(j.error||'Upload failed.');
+  }catch(e){toast('Could not use that avatar.')}
+}
+
 /* ---------- boot ---------- */
 function render(){
   renderSide();
-  $('#main').innerHTML=({assist:vAssist,funnels:vFunnels,videos:vVideos,studio:vStudio,tools:vTools,aff:vAff,bill:vBill,admin:vAdmin})[view]();
-  if(view=='assist'){renderArtifact();fillPersonality();const l=$('#chatlog');if(l)l.scrollTop=l.scrollHeight}
-  if(view=='funnels')funLoad();
-  if(view=='videos')vidLoad();
-  if(view=='studio'){studioLoad();clipLoad();}
-  if(view=='tools'){toolsLoad();subsLoad();}
-  if(view=='aff')affLoad();
+  $('#main').innerHTML=({chat:vChat,bill:vBill,admin:vAdmin})[view]();
+  if(view=='chat'){renderArtifact();const l=$('#chatlog');if(l)l.scrollTop=l.scrollHeight}
   if(view=='bill')billLoad();
   if(view=='admin')admLoad();
 }
@@ -579,7 +525,7 @@ function render(){
 let ASSISTANT_NAME='Assistant';
 let ASSISTANT_PERSONALITY={personality:'',character:'',filter:'clean',hasAvatar:false,voiceProvider:'openai',voice:'alloy'};
 async function loadAssistantName(){try{const r=await api('/api/settings');if(r.ok){if(r.data.assistantName){ASSISTANT_NAME=r.data.assistantName}ASSISTANT_PERSONALITY={personality:r.data.personality||'',character:r.data.character||'',filter:r.data.filter||'clean',hasAvatar:!!r.data.hasAvatar,voiceProvider:r.data.voiceProvider||'openai',voice:r.data.voice||'alloy'};updatePresence();fillPersonality()}}catch(e){}}
-function fillPersonality(){const n=document.getElementById('pName');if(!n)return;n.value=ASSISTANT_NAME=='Assistant'?'':ASSISTANT_NAME;document.getElementById('pChar').value=ASSISTANT_PERSONALITY.character;document.getElementById('pPersonality').value=ASSISTANT_PERSONALITY.personality;document.getElementById('pFilter').value=ASSISTANT_PERSONALITY.filter;document.getElementById('pVoiceProvider').value=ASSISTANT_PERSONALITY.voiceProvider;document.getElementById('pVoice').value=ASSISTANT_PERSONALITY.voice;voiceProviderChanged();const av=document.getElementById('avatarPrev');if(av){av.style.display=ASSISTANT_PERSONALITY.hasAvatar?'':'none';if(ASSISTANT_PERSONALITY.hasAvatar)av.src='/api/settings/avatar/img?'+Date.now()}}
+function fillPersonality(){const n=document.getElementById('pName');if(!n)return;n.value=ASSISTANT_NAME=='Assistant'?'':ASSISTANT_NAME;const pp=document.getElementById('pPersonality');if(pp)pp.value=ASSISTANT_PERSONALITY.personality;const pf=document.getElementById('pFilter');if(pf)pf.value=ASSISTANT_PERSONALITY.filter;const pv=document.getElementById('pVoiceProvider');if(pv)pv.value=ASSISTANT_PERSONALITY.voiceProvider;const pvv=document.getElementById('pVoice');if(pvv)pvv.value=ASSISTANT_PERSONALITY.voice;voiceProviderChanged();const av=document.getElementById('avatarPrev');if(av){av.style.display=ASSISTANT_PERSONALITY.hasAvatar?'':'none';if(ASSISTANT_PERSONALITY.hasAvatar)av.src='/api/settings/avatar/img?'+Date.now()}}
 async function voiceProviderChanged(){
   const p=document.getElementById('pVoiceProvider').value;
   document.getElementById('pVoice').style.display=p=='openai'?'':'none';
@@ -621,10 +567,10 @@ async function cloneVoice(){
   previewVoice();
 }
 async function savePersonality(){
-  const name=document.getElementById('pName').value.trim()||'Assistant';
-  const vp=document.getElementById('pVoiceProvider').value;
-  const v=vp=='elevenlabs'?document.getElementById('pElVoice').value:document.getElementById('pVoice').value;
-  const r=await api('/api/settings',{assistantName:name,personality:document.getElementById('pPersonality').value,character:document.getElementById('pChar').value,filter:document.getElementById('pFilter').value,voiceProvider:vp,voice:v});
+  const name=(document.getElementById('pName')||{}).value||'';
+  const vp=(document.getElementById('pVoiceProvider')||{}).value||'openai';
+  const v=vp=='elevenlabs'?((document.getElementById('pElVoice')||{}).value||''):((document.getElementById('pVoice')||{}).value||'alloy');
+  const r=await api('/api/settings',{assistantName:name.trim()||'Assistant',personality:(document.getElementById('pPersonality')||{}).value||'',character:'',filter:(document.getElementById('pFilter')||{}).value||'clean',voiceProvider:vp,voice:v});
   if(r.ok){ASSISTANT_NAME=r.data.assistantName;ASSISTANT_PERSONALITY={personality:r.data.personality,character:r.data.character,filter:r.data.filter,hasAvatar:ASSISTANT_PERSONALITY.hasAvatar,voiceProvider:r.data.voiceProvider||'openai',voice:r.data.voice||'alloy'};updatePresence();render();toast('Personality saved — '+ASSISTANT_NAME+' is ready.')}
   else toast(r.data.error||'Could not save.')
 }

@@ -13,7 +13,7 @@ import { db, sqlite } from "./db";
 import { auth, enabledSocialProviders } from "./auth";
 import { affiliates, aiSubscriptions, aiUsage, assistantConversations, assistantMessages, blgPosts, contentJobs, funnels, funnelLeads, ideas, integrationKeys, leads, lifetimeAccess, limitHits, mediaJobs, partnerAccess, prospects, referrals, stripeEvents, subscriptions, trialIps, userSettings, videoJobs } from "./schema";
 import { blgConfigured, blgGetArticle, blgListArticles, blgSyncArticles, blgUpsertArticle } from "./blg";
-import { heygenConfigured, heygenGenerateVideo, heygenVideoStatus } from "./heygen";
+import { heygenConfigured, heygenGenerateVideo, heygenVideoStatus, heygenListAvatars } from "./heygen";
 import fs from "node:fs";
 import path from "node:path";
 import { generateImage, leonardoConfigured, openaiConfigured, removeBackground, textToSpeech } from "./media";
@@ -1669,9 +1669,12 @@ const ASSISTANT_TOOLS: any[] = [
   { name: "get_blg_article", description: "Get one full BabyLoveGrowth article by id, with full content_html and content_markdown. Get the id from list_blg_articles first.", input_schema: { type: "object", properties: { id: { type: "string", description: "Article id from the list" } }, required: ["id"] } },
   { name: "sync_blg_articles", description: "Sync BabyLoveGrowth articles into the site blog (/blog). Fetches the latest articles and upserts them by slug. Use when the user wants the newest articles published.", input_schema: { type: "object", properties: {} } },
   { name: "write_video_ad", description: "Write a video ad script for a product or offer: hook options, full script with timestamps, on-screen text cues, and CTA. Formats: ugc (phone-style authentic), vsl (direct sales), testimonial. Use when the user wants ad creative for video.", input_schema: { type: "object", properties: { product: { type: "string", description: "What is being sold" }, audience: { type: "string", description: "Who it's for (optional)" }, format: { type: "string", enum: ["ugc", "vsl", "testimonial"], description: "Ad style (default ugc)" }, length: { type: "string", enum: ["15s", "30s", "60s"], description: "Target length (default 30s)" } }, required: ["product"] } },
-  { name: "make_spokesperson_video", description: "Generate a real AI spokesperson video with HeyGen: a talking-head avatar speaks your script. Returns a job id — the video takes a few minutes to render, then check_video_status for the finished MP4. Formats: landscape (YouTube/site), portrait (TikTok/Reels/Shorts), square (Instagram).", input_schema: { type: "object", properties: { script: { type: "string", description: "Exactly what the avatar says (keep under ~300 words)" }, title: { type: "string", description: "Video title (optional)" }, format: { type: "string", enum: ["landscape", "portrait", "square"], description: "Video shape (default landscape)" } }, required: ["script"] } },
+  { name: "make_spokesperson_video", description: "Generate a real AI spokesperson video with HeyGen: a talking-head avatar speaks your script. Returns a job id — the video takes a few minutes to render, then check_video_status for the finished MP4. Formats: landscape (YouTube/site), portrait (TikTok/Reels/Shorts), square (Instagram). If the user picked an avatar, pass its avatarId from list_avatars.", input_schema: { type: "object", properties: { script: { type: "string", description: "Exactly what the avatar says (keep under ~300 words)" }, title: { type: "string", description: "Video title (optional)" }, format: { type: "string", enum: ["landscape", "portrait", "square"], description: "Video shape (default landscape)" }, avatarId: { type: "string", description: "HeyGen avatar id from list_avatars (optional — defaults to a stock avatar)" } }, required: ["script"] } },
   { name: "check_video_status", description: "Check a spokesperson video job: rendering status and the finished video URL when done.", input_schema: { type: "object", properties: { jobId: { type: "number", description: "Job id from make_spokesperson_video" } }, required: ["jobId"] } },
   { name: "list_videos", description: "List the user's spokesperson video jobs with status and video URLs.", input_schema: { type: "object", properties: {} } },
+  { name: "generate_image", description: "Generate an AI image for ads, social posts, or funnel heroes. Returns the image URL — share it with the user.", input_schema: { type: "object", properties: { prompt: { type: "string", description: "Describe the image in detail" }, style: { type: "string", description: "photorealistic, cinematic, cartoon, anime, minimal, 3d render, etc. (optional)" }, size: { type: "string", enum: ["1024x1024", "1792x1024", "1024x1792"], description: "Square, landscape, or portrait (default 1024x1024)" } }, required: ["prompt"] } },
+  { name: "text_to_speech", description: "Convert text into a spoken voiceover MP3. Returns the audio URL — share it with the user.", input_schema: { type: "object", properties: { text: { type: "string", description: "The text to speak (keep under ~700 words)" }, voice: { type: "string", description: "alloy, echo, fable, onyx, nova, shimmer (default alloy)" } }, required: ["text"] } },
+  { name: "list_avatars", description: "List available HeyGen stock avatars for spokesperson videos: id, name, gender, and preview image URL. Call this when the user wants to pick who appears in their video ad, then pass their chosen avatarId to make_spokesperson_video.", input_schema: { type: "object", properties: {} } },
 ];
 
 /** Execute one assistant tool call. Always returns a JSON-able object (never throws). */
@@ -1787,8 +1790,9 @@ async function runAssistantTool(name: string, input: any, userId: string): Promi
         if (!script) return { error: "Give me the script for the avatar to speak." };
         const format = ["landscape", "portrait", "square"].includes(input?.format) ? input.format : "landscape";
         const title = clean(input?.title, 120) || script.slice(0, 60);
+        const avatarId = clean(input?.avatarId, 120) || undefined;
         try {
-          const { video_id } = await heygenGenerateVideo({ script, format, title });
+          const { video_id } = await heygenGenerateVideo({ script, format, title, avatarId });
           const [job] = await db.insert(videoJobs).values({ userId, heygenVideoId: video_id, title, script, format, status: "queued" }).returning();
           return { jobId: job.id, heygenVideoId: video_id, status: "queued", message: "Video is rendering — check back in a few minutes with check_video_status." };
         } catch (e: any) { return { error: e?.message || "Could not start the video." }; }
@@ -1810,6 +1814,43 @@ async function runAssistantTool(name: string, input: any, userId: string): Promi
       case "list_videos": {
         const rows = await db.select().from(videoJobs).where(eq(videoJobs.userId, userId)).orderBy(desc(videoJobs.createdAt));
         return rows.map((r) => ({ jobId: r.id, title: r.title, format: r.format, status: r.status, videoUrl: r.videoUrl, createdAt: r.createdAt }));
+      }
+      case "generate_image": {
+        if (!openaiConfigured()) return { error: "Image generation is not connected yet." };
+        const q = await studioQuota(userId, false);
+        if (!q.ok) return { error: q.error };
+        const prompt = clean(input?.prompt, 1000);
+        if (!prompt) return { error: "Describe the image to create." };
+        try {
+          const url = await generateImage(prompt, { style: input?.style, size: input?.size, quality: input?.quality });
+          await db.insert(mediaJobs).values({ userId, kind: "image", prompt, status: "done", resultUrl: url });
+          return { imageUrl: url, prompt };
+        } catch (e: any) { return { error: e?.message || "Image generation failed." }; }
+      }
+      case "text_to_speech": {
+        if (!openaiConfigured()) return { error: "Voiceover is not connected yet." };
+        const q = await studioQuota(userId, false);
+        if (!q.ok) return { error: q.error };
+        const text = clean(input?.text, 4000);
+        if (!text) return { error: "Provide the text to speak." };
+        try {
+          const mp3 = await textToSpeech(text, input?.voice || "alloy", 1.0);
+          const name = `tts-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.mp3`;
+          fs.writeFileSync(path.join(MEDIA_DIR, name), mp3);
+          const resultUrl = `/api/studio/file/${name}`;
+          await db.insert(mediaJobs).values({ userId, kind: "tts", prompt: text.slice(0, 200), status: "done", resultUrl });
+          return { audioUrl: resultUrl, chars: text.length };
+        } catch (e: any) { return { error: e?.message || "Voiceover failed." }; }
+      }
+      case "list_avatars": {
+        if (!heygenConfigured()) return { error: "Video avatars are not connected yet." };
+        try {
+          const avatars = await heygenListAvatars();
+          return avatars.slice(0, 24).map((a: any) => ({
+            avatarId: a.avatar_id, name: a.avatar_name, gender: a.gender,
+            preview: a.preview_image_url || a.preview_video_url || null,
+          }));
+        } catch (e: any) { return { error: e?.message || "Could not load avatars." }; }
       }
       case "get_blg_article": {
         const id = String(input.id ?? "").trim();
@@ -1972,6 +2013,10 @@ const AGENT_TOOL_LABELS: Record<string, string> = {
   list_prospects: "Checking pipeline",
   billing_status: "Checking billing",
   affiliate_info: "Checking affiliate stats",
+  generate_image: "Creating image",
+  text_to_speech: "Recording voiceover",
+  list_avatars: "Loading avatars",
+  make_spokesperson_video: "Rendering video",
 };
 
 const AGENT_SYSTEM = `You are the AIU Agent — the user's personal AI worker inside the AIU app. You talk like their right hand: plain, direct, warm, no fluff. Never open with filler like "Great question!" — just do the work.
@@ -1985,7 +2030,8 @@ RULES:
 - Maximum 8 steps. If you cannot finish in 8, summarize what is done and what is left.
 - When the goal is complete, write a final summary starting with "DONE:" — include any links, IDs, or concrete results the user needs. Keep it concise. Name the one clear next move when there is one.
 - Never invent data. Only report what the tools actually returned. If you don't know something, say so.
-- If the goal is unclear or impossible with your tools, say so plainly starting with "DONE:" and suggest what to ask instead.`;
+- If the goal is unclear or impossible with your tools, say so plainly starting with "DONE:" and suggest what to ask instead.
+- CREATIVE WORK: you can generate images (generate_image — always share the returned imageUrl on its own line), voiceovers (text_to_speech — share the audioUrl), and spokesperson videos. For videos: if the user wants to pick who appears, call list_avatars first, show the options with names, then pass the chosen avatarId to make_spokesperson_video.`;
 
 /**
  * Agent mode: the AI works through a goal step by step, streaming visible
@@ -2000,6 +2046,22 @@ keystone.post("/api/assistant/agent", requireUser, requireSub, async (c) => {
 
   const quota = await aiQuota(user.id, c.get("isAdmin"));
   if (!quota.ok) return c.json({ error: quota.error, limitHit: quota.limitHit }, 429);
+
+  // Find the thread, or start a new one (auto-titled from the goal).
+  let conv: any = null;
+  const convId = Number(body.conversationId) || 0;
+  if (convId) {
+    [conv] = await db.select().from(assistantConversations)
+      .where(and(eq(assistantConversations.userId, user.id), eq(assistantConversations.id, convId)));
+  }
+  if (!conv) {
+    [conv] = await db.insert(assistantConversations)
+      .values({ userId: user.id, title: goal.slice(0, 48) || "New chat" }).returning();
+  }
+  const hist = await db.select({ role: assistantMessages.role, content: assistantMessages.content })
+    .from(assistantMessages).where(eq(assistantMessages.conversationId, conv.id))
+    .orderBy(assistantMessages.id).limit(60);
+  const convIdOut = conv.id;
 
   const stream = new ReadableStream({
     async start(controller) {
@@ -2021,8 +2083,12 @@ keystone.post("/api/assistant/agent", requireUser, requireSub, async (c) => {
 
       try {
         send({ type: "step", text: "Understanding your goal" });
-        const messages: any[] = [{ role: "user", content: `Goal: ${goal}` }];
+        const messages: any[] = [
+          ...hist.map((m: any) => ({ role: m.role, content: String(m.content).slice(0, 4000) })).slice(-10),
+          { role: "user", content: `Goal: ${goal}` },
+        ];
         let done = false;
+        let finalText = "";
         for (let i = 0; i < 8 && !done; i++) {
           const data: any = await callAnthropic(messages);
           const blocks = data.content ?? [];
@@ -2034,13 +2100,12 @@ keystone.post("/api/assistant/agent", requireUser, requireSub, async (c) => {
           const doneMatch = texts.match(/^DONE:\s*([\s\S]*)/im);
           const toolUses = blocks.filter((b: any) => b.type === "tool_use");
           if (doneMatch && !toolUses.length) {
-            send({ type: "done", text: doneMatch[1].trim().slice(0, 4000) });
+            finalText = doneMatch[1].trim().slice(0, 4000);
             done = true;
             break;
           }
           if (!toolUses.length) {
-            const summary = texts.replace(/^STEP:.*$/gim, "").trim();
-            send({ type: "done", text: summary.slice(0, 4000) || "Finished." });
+            finalText = texts.replace(/^STEP:.*$/gim, "").trim().slice(0, 4000) || "Finished.";
             done = true;
             break;
           }
@@ -2055,7 +2120,15 @@ keystone.post("/api/assistant/agent", requireUser, requireSub, async (c) => {
           messages.push({ role: "assistant", content: blocks });
           messages.push({ role: "user", content: results });
         }
-        if (!done) send({ type: "done", text: "I ran out of steps. Ask me to continue and I'll pick up where I left off." });
+        if (!done) finalText = "I ran out of steps. Ask me to continue and I'll pick up where I left off.";
+        // Persist the turn (only on success).
+        await db.insert(assistantMessages).values([
+          { conversationId: convIdOut, role: "user", content: goal },
+          { conversationId: convIdOut, role: "assistant", content: finalText.slice(0, 120000) },
+        ]);
+        await db.update(assistantConversations).set({ updatedAt: new Date() })
+          .where(eq(assistantConversations.id, convIdOut));
+        send({ type: "done", text: finalText, conversationId: convIdOut });
       } catch (e: any) {
         send({ type: "error", text: e?.error || "The agent hit a problem. Try again." });
       }
