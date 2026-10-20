@@ -371,15 +371,15 @@ keystone.get("/api/settings", requireUser, async (c) => {
 keystone.post("/api/settings", requireUser, async (c) => {
   const body = await c.req.json().catch(() => ({}));
   const userId = c.get("user").id;
-  const name = clean(String(body.assistantName || ""), 30).trim();
+  const name = clean(String(body.assistantName || ""), 30) || "";
   if (!name) return c.json({ error: "Give your assistant a name." }, 400);
   if (!/^[a-zA-Z0-9 '\-]{2,30}$/.test(name)) return c.json({ error: "Names can use letters, numbers, spaces, hyphens and apostrophes (2-30 characters)." }, 400);
   await setSetting(userId, "assistant_name", name);
   // Personality: free-text description (max 2000 chars)
-  const personality = clean(String(body.personality || ""), 2000).trim();
+  const personality = clean(String(body.personality || ""), 2000) || "";
   await setSetting(userId, "assistant_personality", personality);
   // Character to roleplay (max 100 chars)
-  const character = clean(String(body.character || ""), 100).trim();
+  const character = clean(String(body.character || ""), 100) || "";
   await setSetting(userId, "assistant_character", character);
   // Filter level: clean | raw
   const filter = body.filter === "raw" ? "raw" : "clean";
@@ -388,7 +388,7 @@ keystone.post("/api/settings", requireUser, async (c) => {
   const vprovider = body.voiceProvider === "elevenlabs" ? "elevenlabs" : "openai";
   await setSetting(userId, "assistant_voice_provider", vprovider);
   const voice = vprovider === "elevenlabs"
-    ? clean(String(body.voice || ""), 64).trim() || "21m00Tcm4TlvDq8ikWAM"
+    ? clean(String(body.voice || ""), 64) || "21m00Tcm4TlvDq8ikWAM"
     : (["alloy", "echo", "fable", "onyx", "nova", "shimmer"].includes(body.voice) ? body.voice : "alloy");
   await setSetting(userId, "assistant_voice", voice);
   // Daily greeting ritual (optional fields — only updated when present in the body)
@@ -604,7 +604,7 @@ keystone.post("/api/integrations/elevenlabs/tts", requireUser, requireSub, async
   const q = await studioQuota(c.get("user").id, c.get("isAdmin"));
   if (!q.ok) return c.json({ error: q.error }, 429);
   const body = await c.req.json().catch(() => ({}));
-  const text = clean(String(body.text || ""), 5000).trim();
+  const text = clean(String(body.text || ""), 5000) || "";
   if (!text) return c.json({ error: "Enter some text." }, 400);
   try {
     const audio = await elevenlabsTts(text, String(body.voiceId || "21m00Tcm4TlvDq8ikWAM"));
@@ -619,7 +619,7 @@ keystone.post("/api/integrations/elevenlabs/tts", requireUser, requireSub, async
 keystone.post("/api/integrations/perplexity/search", requireUser, async (c) => {
   const { perplexitySearch } = await import("./integrations");
   const body = await c.req.json().catch(() => ({}));
-  const q = clean(String(body.query || ""), 500).trim();
+  const q = clean(String(body.query || ""), 500) || "";
   if (!q) return c.json({ error: "Enter a search query." }, 400);
   try { return c.json(await perplexitySearch(q)); }
   catch (e: any) { return c.json({ error: e.message || "Search failed." }, 502); }
@@ -632,7 +632,7 @@ keystone.post("/api/integrations/:service/chat", requireUser, requireSub, async 
   if (!qa.ok) return c.json({ error: qa.error }, 429);
   const { geminiChat, grokChat } = await import("./integrations");
   const body = await c.req.json().catch(() => ({}));
-  const prompt = clean(String(body.prompt || ""), 8000).trim();
+  const prompt = clean(String(body.prompt || ""), 8000) || "";
   if (!prompt) return c.json({ error: "Enter a message." }, 400);
   try {
     const reply = service === "gemini" ? await geminiChat(prompt) : await grokChat(prompt);
@@ -654,7 +654,7 @@ keystone.get("/api/ai-subscriptions", requireUser, async (c) => {
 keystone.post("/api/ai-subscriptions", requireUser, async (c) => {
   const userId = c.get("user").id;
   const body = await c.req.json().catch(() => ({}));
-  const serviceName = clean(String(body.serviceName || ""), 60).trim();
+  const serviceName = clean(String(body.serviceName || ""), 60) || "";
   if (!serviceName) return c.json({ error: "Name the service." }, 400);
   const [row] = await db.insert(aiSubscriptions).values({
     userId, serviceName,
@@ -954,7 +954,7 @@ keystone.post("/api/assistant/speak", requireUser, async (c) => {
   const q = await aiQuota(c.get("user").id, c.get("isAdmin"));
   if (!q.ok) return c.json({ error: q.error }, 429);
   const body = await c.req.json().catch(() => ({}));
-  const text = clean(String(body.text || ""), 5000).trim();
+  const text = clean(String(body.text || ""), 5000) || "";
   if (!text) return c.json({ error: "Nothing to speak." }, 400);
   // Strip markdown/code fences for cleaner speech
   const spoken = text.replace(/```[\s\S]*?```/g, " [code omitted] ").replace(/[#*_`~>|]/g, "").replace(/\[([^\]]+)\]\([^)]+\)/g, "$1").slice(0, 5000);
@@ -984,7 +984,7 @@ keystone.get("/api/assistant/voices", requireUser, async (c) => {
 /* Clone a voice from uploaded audio samples (ElevenLabs instant voice cloning) */
 keystone.post("/api/assistant/voice/clone", requireUser, async (c) => {
   const body = await c.req.parseBody().catch(() => ({}));
-  const name = clean(String(body.name || ""), 60).trim() || "My Voice";
+  const name = clean(String(body.name || ""), 60) || "My Voice";
   const raw: any[] = Array.isArray(body.files) ? body.files : (body.files ? [body.files] : []);
   const files: Array<{ buffer: Buffer; filename: string; type: string }> = [];
   for (const f of raw) {
