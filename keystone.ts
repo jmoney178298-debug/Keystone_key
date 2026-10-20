@@ -166,7 +166,8 @@ async function eliteCount(kind: string): Promise<number> {
  */
 /** Owner house affiliate: the owner's own affiliate account. Sales and trials that no
  * other affiliate earned fall to it, so the owner gets paid on every user. */
-const TRIAL_BOUNTY_CENTS = 200; // $2 per free trial started
+const TRIAL_BOUNTY_CENTS = 1000; // $10 to the owner for every free trial started
+const HOUSE_FLAT_CENTS = 5000; // $50 to the owner when a sale has no referrer
 async function houseAffiliate(): Promise<typeof affiliates.$inferSelect | null> {
   if (!OWNER_EMAIL) return null;
   try {
@@ -806,10 +807,11 @@ keystone.post("/api/stripe/webhook", async (c) => {
         await db.insert(lifetimeAccess).values({ userId: buyerId, stripeCustomerId: cust }).onConflictDoNothing();
       }
     }
-    // Referral commission on any completed purchase (initial sale only). A referred sale
-    // pays its affiliate at their tier rate; anything else — no referrer, or the buyer
-    // using their own link — falls to the owner's house affiliate, so the owner earns
-    // on every user (the owner's own account always rates 50%, see affiliateRateFor).
+    // Commission rules (initial sale only):
+    // - A referred sale pays its affiliate at their tier rate — AND pays the owner's
+    //   house affiliate a royalty at the owner's 50% rate on the same sale.
+    // - A sale with no referrer (or a self-referral) pays the owner's house affiliate
+    //   a flat $50 instead.
     if (buyerId) {
       const affCode = (s.metadata as any)?.affCode;
       let aff: typeof affiliates.$inferSelect | undefined;
@@ -818,16 +820,33 @@ keystone.post("/api/stripe/webhook", async (c) => {
           .where(and(eq(affiliates.code, affCode), eq(affiliates.status, "active")));
         if (aff && aff.userId === buyerId) aff = undefined;
       }
-      if (!aff) aff = (await houseAffiliate()) ?? undefined;
       const amountCents = s.amount_total ?? 0;
-      if (aff && amountCents > 0) {
-        const rate = await affiliateRateFor(aff);
-        await db.insert(referrals).values({
-          affiliateId: aff.id, userId: buyerId, kind: kind ?? s.mode,
-          amountCents, commissionCents: Math.round(amountCents * rate),
-          stripeEventId: event.id,
-        }).onConflictDoNothing();
-        await checkElite(aff);
+      if (amountCents > 0) {
+        const kindKey = kind ?? s.mode;
+        const house = await houseAffiliate();
+        if (aff) {
+          const rate = await affiliateRateFor(aff);
+          await db.insert(referrals).values({
+            affiliateId: aff.id, userId: buyerId, kind: kindKey,
+            amountCents, commissionCents: Math.round(amountCents * rate),
+            stripeEventId: event.id,
+          }).onConflictDoNothing();
+          await checkElite(aff);
+          if (house && house.id !== aff.id) {
+            const royaltyRate = await affiliateRateFor(house);
+            await db.insert(referrals).values({
+              affiliateId: house.id, userId: buyerId, kind: kindKey,
+              amountCents, commissionCents: Math.round(amountCents * royaltyRate),
+              stripeEventId: `royalty:${event.id}`,
+            }).onConflictDoNothing();
+          }
+        } else if (house) {
+          await db.insert(referrals).values({
+            affiliateId: house.id, userId: buyerId, kind: kindKey,
+            amountCents, commissionCents: HOUSE_FLAT_CENTS,
+            stripeEventId: event.id,
+          }).onConflictDoNothing();
+        }
       }
     }
   } else if (
@@ -881,7 +900,7 @@ keystone.post("/api/stripe/webhook", async (c) => {
                 .where(and(eq(affiliates.code, code), eq(affiliates.status, "active")));
               if (aff && aff.userId === buyerId) aff = undefined;
             }
-            if (!aff) aff = (await houseAffiliate()) ?? undefined;
+            const house = await houseAffiliate();
             if (aff) {
               const rate = await affiliateRateFor(aff);
               await db.insert(referrals).values({
@@ -890,6 +909,20 @@ keystone.post("/api/stripe/webhook", async (c) => {
                 stripeEventId: event.id,
               }).onConflictDoNothing();
               await checkElite(aff);
+              if (house && house.id !== aff.id) {
+                const royaltyRate = await affiliateRateFor(house);
+                await db.insert(referrals).values({
+                  affiliateId: house.id, userId: buyerId, kind: "subscription",
+                  amountCents, commissionCents: Math.round(amountCents * royaltyRate),
+                  stripeEventId: `royalty:${event.id}`,
+                }).onConflictDoNothing();
+              }
+            } else if (house) {
+              await db.insert(referrals).values({
+                affiliateId: house.id, userId: buyerId, kind: "subscription",
+                amountCents, commissionCents: HOUSE_FLAT_CENTS,
+                stripeEventId: event.id,
+              }).onConflictDoNothing();
             }
           }
         }
@@ -934,6 +967,8 @@ keystone.post("/api/affiliates/join", requireUser, async (c) => {
 
 /** My affiliate dashboard data, including tier ladder and accelerator progress. */
 keystone.get("/api/affiliates/me", requireUser, async (c) => {
+  // The owner's affiliate account is the house account — make sure it exists.
+  if (c.get("isAdmin")) await houseAffiliate();
   const [aff] = await db.select().from(affiliates).where(eq(affiliates.userId, c.get("user").id));
   if (!aff) return c.json({ affiliate: null });
   const [stats] = await db.select({
