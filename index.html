@@ -5,7 +5,7 @@
 <link rel="canonical" href="https://www.getaiu.online/">
 <script type="application/ld+json">[{"@id":"https://www.getaiu.online/#organization","url":"https://www.getaiu.online/","name":"AIU","@type":"Organization","sameAs":["https://www.getaiu.online/"],"@context":"https://schema.org","description":"AIU is a personal AI assistant that learns and adapts to each user. It builds lead funnels, websites, apps, and videos, and manages leads."},{"@id":"https://www.getaiu.online/#website","url":"https://www.getaiu.online/","name":"AIU: Amp It Up","@type":"WebSite","@context":"https://schema.org","publisher":{"@id":"https://www.getaiu.online/#organization"},"inLanguage":"en","description":"AIU is your personal AI assistant that learns you. Chat, build funnels, create videos and websites — it remembers every conversation and gets better."},{"@id":"https://www.getaiu.online/#webpage","url":"https://www.getaiu.online/","name":"AIU — The AI Assistant That Learns You","@type":"WebPage","about":{"@id":"https://www.getaiu.online/#software"},"@context":"https://schema.org","headline":"AIU","isPartOf":{"@id":"https://www.getaiu.online/#website"},"publisher":{"@id":"https://www.getaiu.online/#organization"},"inLanguage":"en","mainEntity":{"@id":"https://www.getaiu.online/#software"},"description":"AIU is your personal AI assistant that adapts and understands you after every conversation. Lifetime access $1,999."},{"@id":"https://www.getaiu.online/#software","url":"https://www.getaiu.online/","name":"AIU","@type":"SoftwareApplication","offers":[{"@id":"https://www.getaiu.online/#aiu-lifetime-offer","url":"https://www.getaiu.online/","name":"AIU Lifetime","@type":"Offer","price":"1999","description":"Lifetime access to AIU, including the adaptive AI assistant, unlimited funnels, websites and apps, lead capture, pipeline management, instant lead alerts, AI videos and studio tools, affiliate dashboard access, and future updates.","availability":"https://schema.org/InStock","priceCurrency":"USD","priceSpecification":{"@type":"PriceSpecification","price":"1999","unitText":"one-time payment","priceCurrency":"USD"}},{"@id":"https://www.getaiu.online/#aiu-partner-offer","url":"https://www.getaiu.online/","name":"AIU Partner","@type":"Offer","price":"4999","description":"AIU Partner membership with all Lifetime features, referral commissions, early access to new features, and a direct line for product ideas.","availability":"https://schema.org/InStock","priceCurrency":"USD","priceSpecification":{"@type":"PriceSpecification","price":"4999","unitText":"year","priceCurrency":"USD"}}],"@context":"https://schema.org","publisher":{"@id":"https://www.getaiu.online/#organization"},"description":"A personal AI assistant that learns you — chat, build lead funnels, create websites, apps and videos, capture and manage leads.","featureList":["Adaptive AI assistant that learns you","Build lead funnels","Create websites and apps","AI spokesperson videos","AI image and voiceover studio","Lead capture and pipeline management","Instant lead alerts","Affiliate dashboard"],"alternateName":"AIU: Amp It Up","operatingSystem":"Web","applicationCategory":["BusinessApplication","WebApplication","ProductivityApplication"]}]</script>
 <link rel="manifest" href="/pwa/manifest.json">
-<meta name="theme-color" content="#071016">
+<meta name="theme-color" content="#0d1114">
 <link rel="apple-touch-icon" href="/pwa/apple-touch-icon.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -13,17 +13,17 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
 <style>
 :root{
-  --bg:#071016; --panel:#161c22; --soft:#222c35; --line:#38434e;
-  --txt:#edf4f6; --muted:#93a3ad; --accent:#ff4f33; --accent-dim:rgba(255,79,51,.14);
+  --bg:#0d1114; --panel:#14191d; --soft:#1b2126; --line:#272e35;
+  --txt:#e9edf0; --muted:#8b949e; --accent:#2dd4bf; --accent-dim:rgba(45,212,191,.14);
 }
 *{box-sizing:border-box}
 html{scroll-behavior:smooth}
 body{margin:0;font:500 16px/1.6 'Inter',system-ui,sans-serif;background:var(--bg);color:var(--txt);-webkit-font-smoothing:antialiased}
-::selection{background:var(--accent);color:#fff}
+::selection{background:var(--accent);color:#04211d}
 a{color:inherit}
 .wrap{width:min(1120px,92vw);margin:0 auto}
 /* ---------- nav ---------- */
-.nav{position:sticky;top:0;z-index:50;background:rgba(7,16,22,.86);backdrop-filter:blur(14px);border-bottom:1px solid var(--line)}
+.nav{position:sticky;top:0;z-index:50;background:rgba(13,17,20,.86);backdrop-filter:blur(14px);border-bottom:1px solid var(--line)}
 .nav .wrap{display:flex;align-items:center;justify-content:space-between;padding:14px 0}
 .logo{font:800 26px 'Inter';letter-spacing:-.04em;text-decoration:none}
 .logo i{font-style:normal;color:var(--accent)}
@@ -32,8 +32,8 @@ a{color:inherit}
 .nav-links a:hover{color:var(--txt)}
 .btn{display:inline-block;border:0;border-radius:12px;padding:14px 28px;font:700 15.5px 'Inter';cursor:pointer;text-decoration:none;transition:transform .15s,box-shadow .15s,background .2s}
 .btn:hover{transform:translateY(-1px)}
-.btn-acc{background:var(--accent);color:#fff;box-shadow:0 8px 28px rgba(255,79,51,.35)}
-.btn-acc:hover{box-shadow:0 12px 34px rgba(255,79,51,.5)}
+.btn-acc{background:var(--accent);color:#04211d;box-shadow:0 8px 28px rgba(45,212,191,.35)}
+.btn-acc:hover{box-shadow:0 12px 34px rgba(45,212,191,.5)}
 .btn-ghost{background:transparent;border:1px solid var(--line);color:var(--txt)}
 .btn-ghost:hover{border-color:var(--accent)}
 .btn-sm{padding:10px 20px;font-size:14px}
@@ -41,7 +41,7 @@ a{color:inherit}
 .hero{position:relative;overflow:hidden;padding:96px 0 80px}
 .hero::before{content:"";position:absolute;width:520px;height:520px;border-radius:50%;background:var(--accent);filter:blur(160px);opacity:.16;right:-140px;top:-80px;pointer-events:none}
 .hero::after{content:"";position:absolute;width:1px;top:0;bottom:0;left:50%;background:linear-gradient(transparent,var(--line),transparent);opacity:.4;pointer-events:none;display:none}
-.kicker{display:inline-flex;align-items:center;gap:8px;font:600 13px 'JetBrains Mono';letter-spacing:.12em;text-transform:uppercase;color:var(--accent);border:1px solid rgba(255,79,51,.35);background:var(--accent-dim);border-radius:999px;padding:7px 16px;margin-bottom:24px}
+.kicker{display:inline-flex;align-items:center;gap:8px;font:600 13px 'JetBrains Mono';letter-spacing:.12em;text-transform:uppercase;color:var(--accent);border:1px solid rgba(45,212,191,.35);background:var(--accent-dim);border-radius:999px;padding:7px 16px;margin-bottom:24px}
 .kicker .dot{width:7px;height:7px;border-radius:50%;background:var(--accent);box-shadow:0 0 12px var(--accent);animation:pulse 2s infinite}
 @keyframes pulse{50%{opacity:.4}}
 h1{font:900 clamp(42px,7.5vw,84px)/1.02 'Inter';letter-spacing:-.045em;margin:0 0 22px}
@@ -61,7 +61,7 @@ h2 .accent{color:var(--accent)}
 .mock-bar span{margin-left:8px;font:600 12.5px 'JetBrains Mono';color:var(--muted)}
 .mock-body{padding:22px;display:flex;flex-direction:column;gap:14px}
 .bub{max-width:82%;padding:13px 17px;border-radius:16px;font-size:14.5px;line-height:1.55}
-.bub.user{align-self:flex-end;background:var(--accent);color:#fff;border-bottom-right-radius:5px}
+.bub.user{align-self:flex-end;background:var(--accent);color:#04211d;border-bottom-right-radius:5px}
 .bub.ai{align-self:flex-start;background:var(--soft);border-bottom-left-radius:5px}
 .bub.ai b{color:var(--accent)}
 .mock-input{margin:0 22px 22px;background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:13px 17px;font-size:14px;color:var(--muted)}
@@ -89,8 +89,8 @@ h2 .accent{color:var(--accent)}
 .price-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:18px;margin-top:44px;align-items:stretch}
 .price-card{background:var(--panel);border:1px solid var(--line);border-radius:20px;padding:36px 32px;display:flex;flex-direction:column;position:relative;transition:transform .15s,border-color .2s}
 .price-card:hover{transform:translateY(-3px)}
-.price-card.hot{border:2px solid var(--accent);box-shadow:0 20px 60px rgba(255,79,51,.18)}
-.flag{position:absolute;top:-14px;left:32px;background:var(--accent);color:#fff;font:700 11.5px 'Inter';letter-spacing:.1em;border-radius:999px;padding:5px 14px}
+.price-card.hot{border:2px solid var(--accent);box-shadow:0 20px 60px rgba(45,212,191,.18)}
+.flag{position:absolute;top:-14px;left:32px;background:var(--accent);color:#04211d;font:700 11.5px 'Inter';letter-spacing:.1em;border-radius:999px;padding:5px 14px}
 .price-card h3{font:800 21px 'Inter';margin:0 0 6px}
 .price-card .amt{font:900 52px/1 'Inter';letter-spacing:-.04em;margin:14px 0 4px}
 .price-card .amt span{font:600 16px 'Inter';color:var(--muted);letter-spacing:0}
@@ -122,7 +122,7 @@ ul.feat li b{color:var(--txt)}
 .faq details[open] summary::after{content:"–"}
 .faq details p{padding:0 24px 22px;margin:0;color:var(--muted);font-size:15.5px}
 /* ---------- footer ---------- */
-footer{border-top:1px solid var(--line);padding:64px 0 40px;background:#04090d}
+footer{border-top:1px solid var(--line);padding:64px 0 40px;background:#090c0e}
 .foot-grid{display:grid;grid-template-columns:1.4fr 1fr 1fr 1fr;gap:40px;margin-bottom:48px}
 .foot-grid h4{font:700 13px 'JetBrains Mono';letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin:0 0 18px}
 .foot-grid a{display:block;color:var(--muted);text-decoration:none;font-size:14.5px;margin-bottom:11px;transition:color .2s}
@@ -139,8 +139,8 @@ footer{border-top:1px solid var(--line);padding:64px 0 40px;background:#04090d}
 .auth-card{background:var(--panel);border:1px solid var(--line);border-radius:20px;padding:38px}
 label{font-size:13px;font-weight:600;color:var(--muted);display:block;margin-bottom:6px}
 input,textarea,select{width:100%;background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:13px 16px;font:500 15px 'Inter';color:var(--txt);margin-bottom:16px}
-input:focus,textarea:focus,select:focus{outline:2px solid var(--accent);border-color:var(--accent)}
-#msg,#perr,#d_msg{color:#ff6b5e;min-height:22px;font-size:14px}
+input:focus,textarea:focus,select:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px rgba(45,212,191,.15)}
+#msg,#perr,#d_msg{color:#7dd3fc;min-height:22px;font-size:14px}
 .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
 .sec-view{display:none}.sec-view.on{display:block}
 /* ---------- responsive ---------- */
@@ -162,7 +162,7 @@ input:focus,textarea:focus,select:focus{outline:2px solid var(--accent);border-c
 
 <!-- ============ NAV ============ -->
 <nav class="nav"><div class="wrap">
-  <a class="logo" href="#top" style="display:flex;align-items:center;gap:8px"><svg width="30" height="30" viewBox="0 0 48 48"><rect width="48" height="48" rx="12" fill="#161c22" stroke="#38434e" stroke-width="1.5"/><path d="M10 33 L24 11 L38 33" stroke="#ff4f33" stroke-width="6.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/><circle cx="24" cy="36" r="3.2" fill="#ff4f33"/></svg><span>AI<i>U</i></span></a>
+  <a class="logo" href="#top" style="display:flex;align-items:center;gap:8px"><svg width="30" height="30" viewBox="0 0 48 48"><rect width="48" height="48" rx="12" fill="#14191d" stroke="#272e35" stroke-width="1.5"/><path d="M10 33 L24 11 L38 33" stroke="#2dd4bf" stroke-width="6.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/><circle cx="24" cy="36" r="3.2" fill="#2dd4bf"/></svg><span>AI<i>U</i></span></a>
   <div class="nav-links">
     <a href="#how">How it works</a>
     <a href="#tools">Tools</a>
@@ -353,7 +353,7 @@ input:focus,textarea:focus,select:focus{outline:2px solid var(--accent);border-c
 <footer id="legal"><div class="wrap">
   <div class="foot-grid">
     <div class="foot-brand">
-      <a class="logo" href="#top" style="font-size:24px;display:flex;align-items:center;gap:8px"><svg width="28" height="28" viewBox="0 0 48 48"><rect width="48" height="48" rx="12" fill="#161c22" stroke="#38434e" stroke-width="1.5"/><path d="M10 33 L24 11 L38 33" stroke="#ff4f33" stroke-width="6.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/><circle cx="24" cy="36" r="3.2" fill="#ff4f33"/></svg><span>AI<i>U</i></span></a>
+      <a class="logo" href="#top" style="font-size:24px;display:flex;align-items:center;gap:8px"><svg width="28" height="28" viewBox="0 0 48 48"><rect width="48" height="48" rx="12" fill="#14191d" stroke="#272e35" stroke-width="1.5"/><path d="M10 33 L24 11 L38 33" stroke="#2dd4bf" stroke-width="6.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/><circle cx="24" cy="36" r="3.2" fill="#2dd4bf"/></svg><span>AI<i>U</i></span></a>
       <p>The AI assistant that learns you. Built by Ltronics PowerHouse LLC in Denver, Colorado.</p>
     </div>
     <div><h4>Product</h4><a href="#how">How it works</a><a href="#tools">Tools</a><a href="#pricing">Pricing</a><a href="#faq">FAQ</a><a href="/app">Open the app</a><a href="/blog">Blog</a></div>
