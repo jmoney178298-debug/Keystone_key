@@ -167,11 +167,11 @@ async function eliteCount(kind: string): Promise<number> {
 /** Owner house affiliate: the owner's own affiliate account. Sales and trials that no
  * other affiliate earned fall to it, so the owner gets paid on every user. */
 const TRIAL_BOUNTY_CENTS = 1000; // $10 to the owner for every free trial started
-const HOUSE_FLAT_CENTS = 5000; // $50 to the owner on unreferred one-time sales (lifetime/partner)
-/** Unreferred subscription sales pay the owner the plan's full first month —
- * $25 Basic / $50 Pro / $75 Pro+ — i.e. the amount actually charged. */
+/** Unreferred sales pay the owner the full amount charged — the plan's first month
+ * on subscriptions ($25 Basic / $50 Pro / $75 Pro+), the full price on one-time
+ * buys (Lifetime / Partner). The owner matching the pricing was his explicit call. */
 function houseFlatFor(kindKey: string, amountCents: number): number {
-  return kindKey === "subscription" ? amountCents : HOUSE_FLAT_CENTS;
+  return amountCents;
 }
 async function houseAffiliate(): Promise<typeof affiliates.$inferSelect | null> {
   if (!OWNER_EMAIL) return null;
@@ -816,7 +816,7 @@ keystone.post("/api/stripe/webhook", async (c) => {
     // - A referred sale pays its affiliate at their tier rate — AND pays the owner's
     //   house affiliate a royalty at the owner's 50% rate on the same sale.
     // - A sale with no referrer (or a self-referral) pays the owner's house affiliate
-    //   the plan's full first month instead ($25 Basic / $50 Pro / $75 Pro+).
+    //   the full amount instead (first month on subscriptions; full price on one-time buys).
     if (buyerId) {
       const affCode = (s.metadata as any)?.affCode;
       let aff: typeof affiliates.$inferSelect | undefined;
