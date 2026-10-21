@@ -388,7 +388,8 @@ let TOOLS_SVCS=[];
 async function toolsLoad(){try{const r=await api('/api/integrations');TOOLS_SVCS=r.ok?(r.data.services||[]):[]}catch(e){TOOLS_SVCS=[]}const b=document.getElementById('toolsbody');if(b)b.innerHTML=toolsHtml();const m=document.getElementById('setTools');if(m)m.innerHTML=toolsHtml()}
 function toolsHtml(){
   if(!TOOLS_SVCS.length)return '<p class="sub">Could not load services.</p>';
-  return TOOLS_SVCS.map(s=>{
+  const CATS=["Chat","Image","Video","Voice","Search","All-in-one"];
+  const card=s=>{
     const badge=isAdmin?(s.connected?'<span class="pill" style="border-color:var(--lime);color:var(--lime)">Connected</span>':'<span class="pill" style="color:#f66;border-color:#f66">Not connected</span>'):'';
     const tools=(s.tools||[]).map(t=>`<span class="pill" style="font-size:11px">${t}</span>`).join(' ');
     let action='';
@@ -396,7 +397,12 @@ function toolsHtml(){
     else if(s.connected&&isAdmin){action=`<div class="row" style="margin-top:8px;gap:8px"><input id="key-${s.id}" type="password" placeholder="Paste new key to update..." style="flex:1;background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px;color:var(--txt)"><button class="btn" onclick="saveKey('${s.id}')">Update</button><button class="btn" onclick="delKey('${s.id}')">Remove</button></div>`}
     else if(!s.connected&&isAdmin){action=`<div class="row" style="margin-top:8px;gap:8px"><input id="key-${s.id}" type="password" placeholder="Paste API key..." style="flex:1;background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px;color:var(--txt)"><button class="btn lime" onclick="saveKey('${s.id}')">Connect</button></div><p class="sub" style="margin-top:6px">Get a key: ${s.keyHint}</p>`}
     return `<div class="card"><div class="row" style="justify-content:space-between;align-items:center"><b>${s.name}</b>${badge}</div><p class="sub">${s.description}</p><div style="margin:8px 0">${tools}</div>${action}</div>`;
-  }).join('');
+  };
+  return CATS.map(cat=>{
+    const list=TOOLS_SVCS.filter(s=>(s.category||'Chat')===cat);
+    if(!list.length)return '';
+    return `<h3 style="margin:18px 0 8px;color:var(--stone);font-size:13px;letter-spacing:.08em;text-transform:uppercase">${cat}</h3>`+list.map(card).join('');
+  }).join('')+TOOLS_SVCS.filter(s=>CATS.indexOf(s.category||'Chat')<0).map(card).join('');
 }
 async function saveKey(id){const i=document.getElementById('key-'+id);if(!i.value.trim()){toast('Paste the API key first.');return}const r=await api('/api/integrations/'+id,{apiKey:i.value.trim()});if(r.ok){toast('Connected!');toolsLoad()}else toast(r.data.error||'Could not save key.')}
 async function delKey(id){if(!confirm('Remove this integration?'))return;const r=await api('/api/integrations/'+id,null,'DELETE');if(r.ok){toast('Removed.');toolsLoad()}else toast('Could not remove.')}

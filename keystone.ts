@@ -692,20 +692,38 @@ keystone.post("/api/integrations/perplexity/search", requireUser, async (c) => {
   try { return c.json(await perplexitySearch(q)); }
   catch (e: any) { return c.json({ error: e.message || "Search failed." }, 502); }
 });
-// Gemini + Grok chat (counts against daily AI quota)
+// Chat with any connected AI provider (counts against daily AI quota)
 keystone.post("/api/integrations/:service/chat", requireUser, requireSub, async (c) => {
   const service = c.req.param("service");
-  if (service !== "gemini" && service !== "grok") return c.json({ error: "Unknown service." }, 404);
+  const { geminiChat, grokChat, oaiCompatChat, chatProviderIds } = await import("./integrations");
+  if (!chatProviderIds().includes(service)) return c.json({ error: "Unknown service." }, 404);
   const qa = await aiQuota(c.get("user").id, c.get("isAdmin"));
   if (!qa.ok) return c.json({ error: qa.error }, 429);
-  const { geminiChat, grokChat } = await import("./integrations");
   const body = await c.req.json().catch(() => ({}));
   const prompt = clean(String(body.prompt || ""), 8000) || "";
   if (!prompt) return c.json({ error: "Enter a message." }, 400);
+  const system = clean(String(body.system || ""), 1000) || undefined;
   try {
-    const reply = service === "gemini" ? await geminiChat(prompt) : await grokChat(prompt);
+    const reply = service === "gemini" ? await geminiChat(prompt, system)
+      : service === "grok" ? await grokChat(prompt, system)
+      : await oaiCompatChat(service, prompt, system);
     return c.json({ reply });
   } catch (e: any) { return c.json({ error: e.message || "Chat failed." }, 502); }
+});
+
+// Replicate: run any public model (counts against daily AI quota)
+keystone.post("/api/integrations/replicate/run", requireUser, requireSub, async (c) => {
+  const qa = await aiQuota(c.get("user").id, c.get("isAdmin"));
+  if (!qa.ok) return c.json({ error: qa.error }, 429);
+  const { replicateRun } = await import("./integrations");
+  const body = await c.req.json().catch(() => ({}));
+  const model = clean(String(body.model || ""), 120) || "";
+  const input = body.input && typeof body.input === "object" ? body.input : null;
+  if (!model || !input) return c.json({ error: "Provide a model as 'owner/name' and an input object." }, 400);
+  try {
+    const output = await replicateRun(model, input);
+    return c.json({ output });
+  } catch (e: any) { return c.json({ error: e.message || "Run failed." }, 502); }
 });
 
 /* ---------- AI Tools hub: subscription tracker ---------- */
@@ -1971,6 +1989,8 @@ const ASSISTANT_TOOLS: any[] = [
   { name: "remember_preference", description: "File a durable fact or preference about this user to your long-term memory: recurring requests ('every morning give me...'), standing preferences, their zodiac sign or birthday, business facts, goals, names, likes and dislikes. Call this whenever the user states something worth honoring in future conversations — then briefly confirm you filed it. Do NOT file one-off task details.", input_schema: { type: "object", properties: { note: { type: "string", description: "One concise note, e.g. 'Wants a Bible verse and horoscope in the daily ritual' or 'Zodiac sign: Scorpio' or 'Runs a roofing company in Denver'." } }, required: ["note"] } },
   { name: "set_daily_ritual", description: "Set up or change the user's daily greeting ritual — the personalized greeting (delivered in their tone) they get when they start a fresh chat each day. Modules: quote (inspirational quote), outlook (positive manifestation-style outlook), bible (Bible verse), horoscope (needs their zodiac sign), tarot (tarot card of the day). Call when the user asks for a morning/daily greeting, wants ritual pieces added or removed, gives their zodiac sign for it, or wants it turned off.", input_schema: { type: "object", properties: { enabled: { type: "boolean", description: "True to enable the ritual, false to turn it off." }, modules: { type: "array", items: { type: "string", enum: ["quote", "outlook", "bible", "horoscope", "tarot"] }, description: "The ritual pieces to include." }, sign: { type: "string", description: "The user's zodiac sign, if known (e.g. 'Scorpio')." } }, required: ["enabled", "modules"] } },
   { name: "update_profile", description: "Save structured profile details the user gives you — first/last name, street address, city, state, ZIP, date of birth (YYYY-MM-DD), sex (male/female/other) — into their profile, so you always address them correctly and can personalize things like their horoscope. Call whenever the user provides any of these in conversation. Only include the fields they actually gave you.", input_schema: { type: "object", properties: { firstName: { type: "string" }, lastName: { type: "string" }, address: { type: "string" }, city: { type: "string" }, state: { type: "string" }, zip: { type: "string" }, dob: { type: "string", description: "Date of birth as YYYY-MM-DD." }, sex: { type: "string", enum: ["male", "female", "other"] } } } },
+  { name: "ask_ai", description: "Ask a different connected AI provider a question — use when the user wants another model's take, or to compare answers across providers. The provider must be connected in AI Tools → Integrations.", input_schema: { type: "object", properties: { provider: { type: "string", enum: ["gemini", "grok", "deepseek", "mistral", "groq", "together"], description: "Which AI to ask" }, prompt: { type: "string", description: "The question or prompt" }, system: { type: "string", description: "Optional system instruction" } }, required: ["provider", "prompt"] } },
+  { name: "run_ai_model", description: "Run any public Replicate AI model — Flux/SDXL image generation, video models, upscaling, music, and thousands more. Model is 'owner/name', e.g. 'black-forest-labs/flux-schnell'. Input is the model's parameters object, e.g. {prompt: 'a sunset over Denver'} for image models. Returns the model's output (usually file URLs). The Replicate token must be connected in AI Tools → Integrations.", input_schema: { type: "object", properties: { model: { type: "string", description: "Model as 'owner/name'" }, input: { type: "object", description: "Model parameters, e.g. {prompt: 'a sunset over Denver'}" } }, required: ["model", "input"] } },
 ];
 
 /** Execute one assistant tool call. Always returns a JSON-able object (never throws). */
@@ -2171,6 +2191,34 @@ async function runAssistantTool(name: string, input: any, userId: string): Promi
         const saved = await setProfile(userId, input);
         return { profile: saved, zodiac: zodiacFromDob(saved.dob) || null };
       }
+      case "ask_ai": {
+        const qa = await aiQuota(userId, c.get("isAdmin"));
+        if (!qa.ok) return { error: qa.error };
+        const provider = String(input?.provider || "");
+        const prompt = clean(input?.prompt, 4000);
+        if (!prompt) return { error: "Provide a prompt to ask." };
+        try {
+          const { geminiChat, grokChat, oaiCompatChat, chatProviderIds } = await import("./integrations");
+          if (!chatProviderIds().includes(provider)) return { error: `Unknown provider. Choose one of: ${chatProviderIds().join(", ")}.` };
+          const system = clean(input?.system, 1000) || undefined;
+          const reply = provider === "gemini" ? await geminiChat(prompt, system)
+            : provider === "grok" ? await grokChat(prompt, system)
+            : await oaiCompatChat(provider, prompt, system);
+          return { provider, reply };
+        } catch (e: any) { return { error: e?.message || "AI request failed." }; }
+      }
+      case "run_ai_model": {
+        const qa = await aiQuota(userId, c.get("isAdmin"));
+        if (!qa.ok) return { error: qa.error };
+        const model = clean(input?.model, 120);
+        const mInput = input?.input && typeof input.input === "object" ? input.input : null;
+        if (!model || !mInput) return { error: "Provide a model as 'owner/name' and an input object." };
+        try {
+          const { replicateRun } = await import("./integrations");
+          const output = await replicateRun(model, mInput);
+          return { model, output };
+        } catch (e: any) { return { error: e?.message || "Model run failed." }; }
+      }
       case "get_blg_article": {
         const id = String(input.id ?? "").trim();
         if (!id) return { error: "Provide an article id from list_blg_articles." };
@@ -2357,6 +2405,7 @@ RULES:
 - MEMORY: You keep a file on this user. When they state a durable preference, a recurring request ("every morning...", "always...", "from now on..."), or a fact about their business, goals, or life worth keeping, call remember_preference to file it, then confirm in a few words. Don't file one-off task details.
 - DAILY RITUAL: Users can have a daily greeting ritual (inspirational quote, positive outlook, Bible verse, horoscope, tarot) delivered in their tone when they start a fresh chat. When a user asks to set one up, change its pieces, or turn it off, call set_daily_ritual. If they give their zodiac sign or birthday for the horoscope, file it with remember_preference too.
 - PROFILE: When a user tells you their name, birthday, address, or other profile details in conversation, save them with update_profile so every future conversation already knows them — and always address the user by their first name from their profile, never a username or email handle.
+- AI HUB: The app has an AI Tools hub with many providers beyond me — DeepSeek, Mistral, Groq, Together AI, Gemini, Grok, Perplexity (search), Replicate (thousands of models: Flux images, video, music, upscaling), ElevenLabs (voice), Leonardo (images), HeyGen (spokesperson video). When the user wants another model's answer, a comparison across models, or a capability I don't have natively (e.g. Flux image gen, video generation, music), use the ask_ai tool (pick a connected provider) or run_ai_model (any public Replicate model as 'owner/name' with its input object). If the provider isn't connected yet, say so plainly and point them to AI Tools → Integrations instead of guessing.
 - QUICK OPTIONS: When you ask the user to pick between 2-4 clear alternatives (never for open questions, never more than 4), end your message with a block exactly like this, on its own lines:
 [[OPTIONS]]
 First choice

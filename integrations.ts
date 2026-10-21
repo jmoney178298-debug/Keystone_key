@@ -23,18 +23,24 @@ export interface AiService {
   keyPrefix?: string; // expected prefix, for validation display
   builtin: boolean; // true = read from env, false = stored in integration_keys
   envVar?: string;
+  category: string; // Chat | Image | Video | Voice | Search | All-in-one
 }
 
 /** Every AI the app knows about. Add new ones here — the UI renders from this list. */
 export const AI_SERVICES: AiService[] = [
-  { id: "openai", name: "OpenAI", description: "GPT chat, DALL-E images, Whisper transcription, TTS voices", tools: ["Chat", "Images", "Voiceover", "Transcription"], keyHint: "platform.openai.com → API keys", keyPrefix: "sk-", builtin: true, envVar: "OPENAI_APP_KEY" },
-  { id: "anthropic", name: "Anthropic Claude", description: "Claude chat + agent that powers the AIU assistant", tools: ["Assistant chat", "Agent mode", "Highlight analysis"], keyHint: "console.anthropic.com → API keys", keyPrefix: "sk-ant-", builtin: true, envVar: "ANTHROPIC_API_KEY" },
-  { id: "leonardo", name: "Leonardo AI", description: "Image generation + background removal", tools: ["Image gen", "Background removal"], keyHint: "app.leonardo.ai → API access", builtin: true, envVar: "LEONARDO_API_KEY" },
-  { id: "heygen", name: "HeyGen", description: "AI spokesperson / talking-head videos", tools: ["Spokesperson video"], keyHint: "app.heygen.ai → API", builtin: true, envVar: "HEYGEN_API_KEY" },
-  { id: "elevenlabs", name: "ElevenLabs", description: "Ultra-realistic AI voiceover in 30+ voices", tools: ["Premium TTS"], keyHint: "elevenlabs.io → Profile → API keys", keyPrefix: "sk_", builtin: false },
-  { id: "gemini", name: "Google Gemini", description: "Google's AI — chat, vision, fast reasoning", tools: ["Chat", "Vision"], keyHint: "aistudio.google.com → Get API key", builtin: false },
-  { id: "perplexity", name: "Perplexity", description: "AI search with cited sources — research assistant", tools: ["AI search"], keyHint: "perplexity.ai → Settings → API", keyPrefix: "pplx-", builtin: false },
-  { id: "grok", name: "xAI Grok", description: "Grok chat with real-time X/Twitter knowledge", tools: ["Chat"], keyHint: "console.x.ai → API keys", keyPrefix: "xai-", builtin: false },
+  { id: "openai", name: "OpenAI", description: "GPT chat, DALL-E images, Whisper transcription, TTS voices", tools: ["Chat", "Images", "Voiceover", "Transcription"], keyHint: "platform.openai.com → API keys", keyPrefix: "sk-", builtin: true, envVar: "OPENAI_APP_KEY", category: "Chat" },
+  { id: "anthropic", name: "Anthropic Claude", description: "Claude chat + agent that powers the AIU assistant", tools: ["Assistant chat", "Agent mode", "Highlight analysis"], keyHint: "console.anthropic.com → API keys", keyPrefix: "sk-ant-", builtin: true, envVar: "ANTHROPIC_API_KEY", category: "Chat" },
+  { id: "leonardo", name: "Leonardo AI", description: "Image generation + background removal", tools: ["Image gen", "Background removal"], keyHint: "app.leonardo.ai → API access", builtin: true, envVar: "LEONARDO_API_KEY", category: "Image" },
+  { id: "heygen", name: "HeyGen", description: "AI spokesperson / talking-head videos", tools: ["Spokesperson video"], keyHint: "app.heygen.ai → API", builtin: true, envVar: "HEYGEN_API_KEY", category: "Video" },
+  { id: "elevenlabs", name: "ElevenLabs", description: "Ultra-realistic AI voiceover in 30+ voices", tools: ["Premium TTS"], keyHint: "elevenlabs.io → Profile → API keys", keyPrefix: "sk_", builtin: false, category: "Voice" },
+  { id: "gemini", name: "Google Gemini", description: "Google's AI — chat, vision, fast reasoning", tools: ["Chat", "Vision"], keyHint: "aistudio.google.com → Get API key", builtin: false, category: "Chat" },
+  { id: "perplexity", name: "Perplexity", description: "AI search with cited sources — research assistant", tools: ["AI search"], keyHint: "perplexity.ai → Settings → API", keyPrefix: "pplx-", builtin: false, category: "Search" },
+  { id: "grok", name: "xAI Grok", description: "Grok chat with real-time X/Twitter knowledge", tools: ["Chat"], keyHint: "console.x.ai → API keys", keyPrefix: "xai-", builtin: false, category: "Chat" },
+  { id: "deepseek", name: "DeepSeek", description: "Ultra-cheap, powerful chat — great for bulk reasoning", tools: ["Chat"], keyHint: "platform.deepseek.com → API keys", keyPrefix: "sk-", builtin: false, category: "Chat" },
+  { id: "mistral", name: "Mistral AI", description: "Europe's frontier chat models", tools: ["Chat"], keyHint: "console.mistral.ai → API keys", builtin: false, category: "Chat" },
+  { id: "groq", name: "Groq", description: "Blazing-fast Llama, Qwen & Mixtral inference", tools: ["Chat"], keyHint: "console.groq.com → API keys", keyPrefix: "gsk_", builtin: false, category: "Chat" },
+  { id: "together", name: "Together AI", description: "200+ open-source models on one API", tools: ["Chat"], keyHint: "api.together.ai → Settings → API keys", builtin: false, category: "Chat" },
+  { id: "replicate", name: "Replicate", description: "Run thousands of AI models — Flux images, video, music, upscaling", tools: ["Images", "Video", "Audio", "Upscale"], keyHint: "replicate.com → Account → API tokens", keyPrefix: "r8_", builtin: false, category: "All-in-one" },
 ];
 
 /* ---------- encrypted key storage ---------- */
@@ -75,6 +81,11 @@ export async function getServiceKey(serviceId: string): Promise<string | null> {
     gemini: ["GEMINI_API_KEY"],
     perplexity: ["PERPLEXITY_API_KEY"],
     grok: ["GROK_API_KEY", "XAI_API_KEY"],
+    deepseek: ["DEEPSEEK_API_KEY"],
+    mistral: ["MISTRAL_API_KEY"],
+    groq: ["GROQ_API_KEY"],
+    together: ["TOGETHER_API_KEY"],
+    replicate: ["REPLICATE_API_TOKEN", "REPLICATE_API_KEY"],
   };
   for (const v of envMap[serviceId] || []) {
     if (process.env[v]) return process.env[v]!;
@@ -204,4 +215,67 @@ export async function grokChat(prompt: string, system?: string): Promise<string>
   if (!r.ok) throw new Error(`Grok error ${r.status}`);
   const j: any = await r.json();
   return j.choices?.[0]?.message?.content ?? "";
+}
+
+/* ---------- OpenAI-compatible chat providers (DeepSeek, Mistral, Groq, Together) ---------- */
+
+const OAI_COMPAT: Record<string, { base: string; model: string; label: string }> = {
+  deepseek: { base: "https://api.deepseek.com/v1", model: "deepseek-chat", label: "DeepSeek" },
+  mistral: { base: "https://api.mistral.ai/v1", model: "mistral-large-latest", label: "Mistral" },
+  groq: { base: "https://api.groq.com/openai/v1", model: "llama-3.3-70b-versatile", label: "Groq" },
+  together: { base: "https://api.together.xyz/v1", model: "meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo", label: "Together AI" },
+};
+
+/** Chat via any OpenAI-compatible provider. serviceId must be a key of OAI_COMPAT. */
+export async function oaiCompatChat(serviceId: string, prompt: string, system?: string): Promise<string> {
+  const cfg = OAI_COMPAT[serviceId];
+  if (!cfg) throw new Error("Unknown service.");
+  const key = await getServiceKey(serviceId);
+  if (!key) throw new Error(`${cfg.label} API key not configured. Add it in AI Tools → Integrations.`);
+  const r = await fetch(`${cfg.base}/chat/completions`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: cfg.model,
+      messages: [...(system ? [{ role: "system", content: system }] : []), { role: "user", content: prompt }],
+    }),
+  });
+  if (!r.ok) throw new Error(`${cfg.label} error ${r.status}`);
+  const j: any = await r.json();
+  return j.choices?.[0]?.message?.content ?? "";
+}
+
+/** Friendly names of the chat providers the assistant can route to. */
+export function chatProviderIds(): string[] {
+  return ["gemini", "grok", ...Object.keys(OAI_COMPAT)];
+}
+
+/* ---------- Replicate: run any public model (images, video, audio, upscale) ---------- */
+
+/**
+ * Run a Replicate model. `model` is "owner/name" (latest version is resolved
+ * automatically). Returns the model's output (usually a URL string or array of URLs).
+ * Example models: "black-forest-labs/flux-schnell" {prompt}, "nightmareai/real-esrgan" {image}.
+ */
+export async function replicateRun(model: string, input: Record<string, any>): Promise<any> {
+  const key = await getServiceKey("replicate");
+  if (!key) throw new Error("Replicate API token not configured. Add it in AI Tools → Integrations.");
+  if (!/^[\w-]+\/[\w.-]+$/.test(model)) throw new Error("Model must look like 'owner/name', e.g. 'black-forest-labs/flux-schnell'.");
+  const headers = { Authorization: `Bearer ${key}`, "Content-Type": "application/json", Prefer: "wait" };
+  let r = await fetch("https://api.replicate.com/v1/predictions", {
+    method: "POST", headers,
+    body: JSON.stringify({ model, input }),
+  });
+  if (!r.ok) { const t = await r.text().catch(() => ""); throw new Error(`Replicate error ${r.status}: ${t.slice(0, 200)}`); }
+  let p: any = await r.json();
+  const deadline = Date.now() + 4 * 60 * 1000;
+  while (p.status !== "succeeded" && p.status !== "failed" && p.status !== "canceled") {
+    if (Date.now() > deadline) throw new Error("Replicate run timed out after 4 minutes.");
+    await new Promise((res) => setTimeout(res, 4000));
+    r = await fetch(`https://api.replicate.com/v1/predictions/${p.id}`, { headers });
+    if (!r.ok) throw new Error(`Replicate status error ${r.status}`);
+    p = await r.json();
+  }
+  if (p.status !== "succeeded") throw new Error(`Replicate run ${p.status}: ${String(p.error || "").slice(0, 300)}`);
+  return p.output;
 }
