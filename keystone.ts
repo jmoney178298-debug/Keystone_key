@@ -1361,6 +1361,15 @@ const LEAD_DAILY_LIMIT: Record<string, number> = { basic: 5, pro: 50, proplus: 2
 const slugify = (s: string) =>
   s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60) || "funnel";
 
+/** Avoid "roofers-roofers": if business and industry slug to the same thing (or one contains the other), don't repeat it. */
+function smartSlugBase(business: string, industry: string): string {
+  const b = slugify(business), ind = slugify(industry);
+  if (!b) return ind || "funnel";
+  if (!ind || b === ind) return b;
+  if (b.includes(ind) || ind.includes(b)) return b.length >= ind.length ? b : ind;
+  return `${business} ${industry}`;
+}
+
 async function uniqueSlug(base: string) {
   const root = slugify(base);
   let n = 0;
@@ -1506,6 +1515,16 @@ keystone.get("/f/:slug", async (c) => {
   c.header("Cache-Control", "no-store");
   // Count the view (best effort; never blocks the page).
   db.update(funnels).set({ views: sql`${funnels.views} + 1` }).where(eq(funnels.id, f.id)).catch(() => {});
+  return c.html(f.html);
+});
+
+/** Owner-only preview of a draft funnel (the public URL 404s drafts). */
+keystone.get("/f/preview/:id", requireUser, async (c) => {
+  const id = Number(c.req.param("id")) || 0;
+  const [f] = await db.select().from(funnels).where(eq(funnels.id, id));
+  const user = c.get("user");
+  if (!f || (f.userId !== user.id && !c.get("isAdmin"))) return c.text("Not found", 404);
+  c.header("Cache-Control", "no-store");
   return c.html(f.html);
 });
 
@@ -1900,7 +1919,7 @@ async function aiFunnelData(userId: string, industry: string, business: string, 
     throw { status: 502, error: "Could not generate the funnel. Try again." };
   }
   if (!data || typeof data.headline !== "string") throw { status: 502, error: "The AI returned an unusable funnel. Try again." };
-  const slug = await uniqueSlug(`${business} ${industry}`);
+  const slug = await uniqueSlug(smartSlugBase(business, industry));
   const isVideo = kind === "video";
   const render = isVideo ? renderVideoFunnelPage : renderFunnelPage;
   const html = render({
@@ -1964,7 +1983,13 @@ RULES:
 - When asked about affiliate commissions, tiers, or the Partner program, call affiliate_info and answer from its data — never guess rates or terms.
 - If a tool fails, say what happened in plain words and suggest the next step.
 - If you don't know something, say so. Never bluff.
-- You're a friend, but you're not their therapist, doctor, or lawyer. For serious personal, health, or legal matters, be caring but point them to a real professional.`;
+- You're a friend, but you're not their therapist, doctor, or lawyer. For serious personal, health, or legal matters, be caring but point them to a real professional.
+- QUICK OPTIONS: When you ask the user to pick between 2-4 clear alternatives (never for open questions, never more than 4), end your message with a block exactly like this, on its own lines:
+[[OPTIONS]]
+First choice
+Second choice
+[[/OPTIONS]]
+The app turns each line into a tappable button, and tapping sends that exact line back as the user's reply. Keep each option under 40 characters. Never explain or mention the block itself.`;
 
 const ASSISTANT_TOOLS: any[] = [
   { name: "generate_funnel", description: "Generate an AI lead-capture funnel page for an industry and business name. Saves it as a draft and returns its id, title and shareable URL. Kind can be 'standard' (classic layout) or 'video' (VSL-style page with a video embed slot, sticky CTA).", input_schema: { type: "object", properties: { industry: { type: "string", description: "e.g. roofers, plumbers, dentists" }, business: { type: "string", description: "Business name (optional)" }, kind: { type: "string", enum: ["standard", "video"], description: "Funnel layout (default standard)" }, videoUrl: { type: "string", description: "YouTube/Loom/Vimeo embed URL for video funnels (optional)" } }, required: ["industry"] } },
@@ -1994,7 +2019,7 @@ const ASSISTANT_TOOLS: any[] = [
 ];
 
 /** Execute one assistant tool call. Always returns a JSON-able object (never throws). */
-async function runAssistantTool(name: string, input: any, userId: string): Promise<any> {
+async function runAssistantTool(name: string, input: any, userId: string, isAdmin = false): Promise<any> {
   try {
     switch (name) {
       case "generate_funnel": {
@@ -2192,7 +2217,7 @@ async function runAssistantTool(name: string, input: any, userId: string): Promi
         return { profile: saved, zodiac: zodiacFromDob(saved.dob) || null };
       }
       case "ask_ai": {
-        const qa = await aiQuota(userId, c.get("isAdmin"));
+        const qa = await aiQuota(userId, isAdmin);
         if (!qa.ok) return { error: qa.error };
         const provider = String(input?.provider || "");
         const prompt = clean(input?.prompt, 4000);
@@ -2208,7 +2233,7 @@ async function runAssistantTool(name: string, input: any, userId: string): Promi
         } catch (e: any) { return { error: e?.message || "AI request failed." }; }
       }
       case "run_ai_model": {
-        const qa = await aiQuota(userId, c.get("isAdmin"));
+        const qa = await aiQuota(userId, isAdmin);
         if (!qa.ok) return { error: qa.error };
         const model = clean(input?.model, 120);
         const mInput = input?.input && typeof input.input === "object" ? input.input : null;
@@ -2309,7 +2334,7 @@ keystone.post("/api/assistant/chat", requireUser, requireSub, async (c) => {
         results.push({
           type: "tool_result",
           tool_use_id: tu.id,
-          content: JSON.stringify(await runAssistantTool(tu.name, tu.input ?? {}, user.id)).slice(0, 8000),
+          content: JSON.stringify(await runAssistantTool(tu.name, tu.input ?? {}, user.id, c.get("isAdmin"))).slice(0, 8000),
         });
       }
       messages.push({ role: "assistant", content: data.content });
@@ -2385,6 +2410,8 @@ const AGENT_TOOL_LABELS: Record<string, string> = {
   list_avatars: "Loading avatars",
   make_spokesperson_video: "Rendering video",
   remember_preference: "Filing that away",
+  ask_ai: "Asking another AI",
+  run_ai_model: "Running AI model",
   set_daily_ritual: "Setting up your ritual",
   update_profile: "Updating your profile",
 };
@@ -2493,7 +2520,7 @@ keystone.post("/api/assistant/agent", requireUser, requireSub, async (c) => {
           for (const tu of toolUses) {
             const label = AGENT_TOOL_LABELS[tu.name] || "Working";
             send({ type: "tool", text: label });
-            const out = await runAssistantTool(tu.name, tu.input ?? {}, user.id);
+            const out = await runAssistantTool(tu.name, tu.input ?? {}, user.id, c.get("isAdmin"));
             results.push({ type: "tool_result", tool_use_id: tu.id, content: JSON.stringify(out).slice(0, 8000) });
             send({ type: "tool_done", text: label });
           }

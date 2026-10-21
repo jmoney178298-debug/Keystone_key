@@ -111,7 +111,7 @@ a{color:var(--volt2)}
 </style></head><body>
 <nav class="side" id="side"></nav><main id="main"></main>
 <nav id="mnav"><button data-v="home" onclick="goHome()"><span>🏠</span>Home</button><button data-v="chat" onclick="setView('chat')"><span>💬</span>Chat</button><button data-v="aff" onclick="setView('aff')"><span>💸</span>Affiliates</button><button data-v="voice" onclick="openVoicePanel()"><span>🎙️</span>Voice</button><button data-v="setup" onclick="openSettings()"><span>⚙️</span>Setup</button></nav>
-<div id="presence" style="position:fixed;top:12px;left:50%;transform:translateX(-50%);z-index:100;display:none;align-items:center;gap:10px;background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:8px 18px 8px 8px;box-shadow:0 4px 24px rgba(0,0,0,.4);cursor:move;touch-action:none;user-select:none"><div id="presenceAvatar" style="width:36px;height:36px;border-radius:50%;overflow:hidden;flex:none"><svg width="36" height="36" viewBox="0 0 48 48"><rect width="48" height="48" rx="12" fill="#14191d"/><path d="M10 33 L24 11 L38 33" stroke="#2dd4bf" stroke-width="6.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/><circle cx="24" cy="36" r="3.2" fill="#2dd4bf"/></svg></div><div><div id="presenceName" style="font-weight:700;font-size:14px">Assistant</div><div id="presenceStatus" style="font-size:12px;color:var(--stone)">Ready</div></div><div id="presenceDot" style="width:10px;height:10px;border-radius:50%;background:#22c55e"></div></div>
+<div id="presence" style="position:fixed;bottom:18px;right:18px;z-index:100;display:none;align-items:center;gap:10px;background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:8px 18px 8px 8px;box-shadow:0 4px 24px rgba(0,0,0,.4);cursor:move;touch-action:none;user-select:none"><div id="presenceAvatar" style="width:36px;height:36px;border-radius:50%;overflow:hidden;flex:none"><svg width="36" height="36" viewBox="0 0 48 48"><rect width="48" height="48" rx="12" fill="#14191d"/><path d="M10 33 L24 11 L38 33" stroke="#2dd4bf" stroke-width="6.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/><circle cx="24" cy="36" r="3.2" fill="#2dd4bf"/></svg></div><div><div id="presenceName" style="font-weight:700;font-size:14px">Assistant</div><div id="presenceStatus" style="font-size:12px;color:var(--stone)">Ready</div></div><div id="presenceDot" style="width:10px;height:10px;border-radius:50%;background:#22c55e"></div></div>
 <script>
 const $=s=>document.querySelector(s);
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -356,7 +356,7 @@ function studioListHtml(){
   :STUDIO.length?STUDIO.map(j=>{const preview=j.kind=='image'?`<img src="${esc(j.resultUrl)}" style="max-width:100%;border-radius:10px;margin-top:8px" loading="lazy">`:j.kind=='tts'?`<audio controls src="${esc(j.resultUrl)}" style="width:100%;margin-top:8px"></audio>`:`<img src="${esc(j.resultUrl)}" style="max-width:100%;border-radius:10px;margin-top:8px" loading="lazy">`;
     const label=j.kind=='image'?'Image':j.kind=='tts'?'Voiceover':'BG removed';
     return `<div class="card"><div class="row" style="justify-content:space-between"><div><b>${label}</b> <span class="pill">${new Date(j.createdAt).toLocaleDateString()}</span></div><button class="btn ghost" onclick="window.open('${esc(j.resultUrl)}','_blank')">Open</button></div><p class="sub">${esc((j.prompt||'').slice(0,140))}</p>${preview}</div>`}).join('')
-  :'<div class="card"><p style="color:var(--stone)">Nothing created yet. Generate an image, a voiceover, or remove a background below.</p></div>';
+  :'<div class="card"><p style="color:var(--stone)">Nothing created yet. Generate an image, a voiceover, or remove a background above.</p></div>';
 }
 function affBodyHtml(){
   return AFF===null?'<div class="card">Loading...</div>':AFF==='err'?`<div class="card"><b>Couldn't load affiliates</b><p style="color:var(--stone)">${esc(AFFERR)}</p><div class="row" style="margin-top:10px"><button class="btn lime" onclick="AFF=null;AFFERR='';render();affLoad()">Try again</button></div></div>`:(AFF.affiliate?affDash(AFF):affJoin());
@@ -371,8 +371,12 @@ async function studioImage(){const p=(document.getElementById('stPrompt')||{}).v
 async function studioTts(){const t=(document.getElementById('stText')||{}).value||'';if(!t.trim()){toast('Write the voiceover text first.');return}toast('Recording voiceover…');const r=await api('/api/studio/tts',{text:t});if(r.ok){toast('Voiceover ready below.');studioLoad()}else if(r.status==429&&typeof showUpgrade=='function')showUpgrade();else toast(r.data.error||'Voiceover failed.')}
 async function studioBg(){const u=(document.getElementById('stBgUrl')||{}).value||'';if(!u.trim()){toast('Paste an image URL first.');return}toast('Removing background…');const r=await api('/api/studio/bgremove',{imageUrl:u});if(r.ok){toast('Done — see the result below.');studioLoad()}else if(r.status==429&&typeof showUpgrade=='function')showUpgrade();else toast(r.data.error||'Background removal failed.')}
 async function affLoad(){try{const r=await api('/api/affiliates/me');if(r.ok)AFF=r.data;else{AFF='err';AFFERR=r.data.error||'Request failed'}}catch(e){AFF='err';AFFERR='Network error'}const b=document.getElementById('affbody');if(b)b.innerHTML=affBodyHtml()}
+function viewFunnel(id,status,url){
+  // Drafts 404 on the public URL — owners get a live preview instead.
+  window.open(status=='live'?url:`/f/preview/${id}`,'_blank');
+}
 function funListHtml(){
-  const cards=(F||[]).map(f=>`<div class="card"><div class="row" style="justify-content:space-between"><div><b>${esc(f.title||'Untitled')}</b> <span class="pill">${esc(f.industry||'')}</span> <span class="pill">${f.status=='live'?'● live':'draft'}</span></div><div class="row" style="gap:6px"><button class="btn ghost" onclick="window.open('${esc(f.url||('/f/'+f.slug))}','_blank')">View</button><button class="btn ${f.status=='live'?'ghost':'lime'}" onclick="funPublish(${f.id},'${f.status=='live'?'draft':'live'}')">${f.status=='live'?'Unpublish':'Publish'}</button></div></div><p class="sub">${esc(f.url||'')} · ${f.leads??0} leads · ${f.views??0} views</p></div>`).join('')||'<div class="card"><p style="color:var(--stone)">No funnels yet — build your first one above, or just ask in Chat.</p></div>';
+  const cards=(F||[]).map(f=>`<div class="card"><div class="row" style="justify-content:space-between"><div><b>${esc(f.title||'Untitled')}</b> <span class="pill">${esc(f.industry||'')}</span> <span class="pill">${f.status=='live'?'● live':'draft'}</span></div><div class="row" style="gap:6px"><button class="btn ghost" onclick="viewFunnel(${f.id},'${f.status}','${esc(f.url||('/f/'+f.slug))}')">View</button><button class="btn ${f.status=='live'?'ghost':'lime'}" onclick="funPublish(${f.id},'${f.status=='live'?'draft':'live'}')">${f.status=='live'?'Unpublish':'Publish'}</button></div></div><p class="sub">${esc(f.url||'')} · ${f.leads??0} leads · ${f.views??0} views</p></div>`).join('')||'<div class="card"><p style="color:var(--stone)">No funnels yet — build your first one above, or just ask in Chat.</p></div>';
   const leads=(FL||[]).slice(0,25).map(l=>`<div class="card"><div class="row" style="justify-content:space-between"><b>${esc(l.name||'Lead')}</b><span class="pill">${esc(l.status||'new')}</span></div><p class="sub">${esc(l.email||'')} ${esc(l.phone||'')}</p></div>`).join('');
   return cards+(leads?`<h3 style="margin:18px 0 8px">Recent leads</h3>${leads}`:'');
 }
@@ -380,7 +384,7 @@ async function funCreate(){const biz=(document.getElementById('fnBiz')||{}).valu
 async function funPublish(id,status){const r=await api('/api/funnels/'+id+'/publish',{status});if(r.ok){toast(status=='live'?'Funnel is live.':'Funnel back to draft.');await funLoad();const b=document.getElementById('funbody');if(b)b.innerHTML=funListHtml()}else toast(r.data.error||'Could not update that funnel.')}
 function vFunnels(){return `<div class="fade"><h1>Fun<i>nels</i> & Leads</h1><p class="sub">Your lead funnels and the customers they capture. Build here, or just ask in Chat.</p><div class="card"><b>Quick builder</b><div class="row" style="gap:8px;flex-wrap:wrap;margin-top:8px"><input id="fnBiz" placeholder="Business name" style="flex:1;min-width:150px"><input id="fnInd" placeholder="Industry (e.g. roofing)" style="flex:1;min-width:150px"><button class="btn lime" onclick="funCreate()">Build funnel</button></div></div><div id="funbody">${funListHtml()}</div></div>`}
 function vVideos(){return `<div class="fade"><h1>Vid<i>eos</i></h1><p class="sub">AI spokesperson videos for your business.</p><div class="card"><b>New video</b><textarea id="vidScript" placeholder="Write what your spokesperson should say..." style="min-height:80px;margin-top:8px"></textarea><div class="row" style="gap:8px;margin-top:8px;flex-wrap:wrap"><select id="vidFormat" style="max-width:180px"><option value="landscape">Landscape 16:9</option><option value="portrait">Portrait 9:16</option><option value="square">Square 1:1</option></select><button class="btn lime" onclick="vidCreate()">Render video</button></div></div><div id="vidbody">${vidListHtml()}</div></div>`}
-function vStudio(){return `<div class="fade"><h1>Stu<i>dio</i></h1><p class="sub">Images, voiceovers, and background removal.</p><div class="card"><b>Create an image</b><div class="row" style="gap:8px;margin-top:8px;flex-wrap:wrap"><input id="stPrompt" placeholder="Describe the image..." style="flex:1;min-width:200px"><button class="btn lime" onclick="studioImage()">Generate</button></div></div><div class="card"><b>Voiceover</b><textarea id="stText" placeholder="Text to speak..." style="min-height:60px;margin-top:8px"></textarea><div class="row" style="margin-top:8px"><button class="btn lime" onclick="studioTts()">Record voiceover</button></div></div><div class="card"><b>Remove a background</b><div class="row" style="gap:8px;margin-top:8px;flex-wrap:wrap"><input id="stBgUrl" placeholder="Paste an image URL..." style="flex:1;min-width:200px"><button class="btn lime" onclick="studioBg()">Remove background</button></div></div><div id="studiobody">${studioListHtml()}</div></div>`}
+function vStudio(){return `<div class="fade"><h1>Stu<i>dio</i></h1><p class="sub">Images, voiceovers, and background removal.</p><div class="card"><b>Create an image</b><div class="row" style="gap:8px;margin-top:8px;flex-wrap:wrap"><input id="stPrompt" placeholder="Describe the image..." style="flex:1;min-width:200px"><button class="btn lime" onclick="studioImage()">Generate</button></div></div><div class="card"><b>Voiceover</b><textarea id="stText" placeholder="Text to speak..." style="min-height:60px;margin-top:8px"></textarea><div class="row" style="margin-top:8px"><button class="btn lime" onclick="studioTts()">Generate voiceover</button></div></div><div class="card"><b>Remove a background</b><div class="row" style="gap:8px;margin-top:8px;flex-wrap:wrap"><input id="stBgUrl" placeholder="Paste an image URL..." style="flex:1;min-width:200px"><button class="btn lime" onclick="studioBg()">Remove background</button></div></div><div id="studiobody">${studioListHtml()}</div></div>`}
 function vTools(){return `<div class="fade"><h1>AI <i>Tools</i></h1><p class="sub">${isAdmin?'The AI services wired into your assistant. Connect or update keys here.':'The AI services powering your assistant.'}</p><div id="toolsbody">${toolsHtml()}</div></div>`}
 function vAff(){return `<div class="fade"><h1>Affi<i>liates</i></h1><p class="sub">Share your link and earn on every subscriber — climb from 15% to a lifetime 50%.</p><div id="affbody">${affBodyHtml()}</div></div>`}
 /* ---------- AI Tools hub ---------- */
@@ -435,7 +439,8 @@ function affDash(A){const a=A.affiliate,s=A.stats;
     :a.elite?'<span class="pill" style="border-color:var(--lime);color:var(--lime)">ELITE · 50% FOR LIFE</span>'
     :`<span class="pill">${Math.round(a.rate*100)}% rate</span>`;
   const ladder=A.tiers.map(t=>{const cur=a.tier!='partner'&&!a.elite&&Math.abs(a.rate-t.rate)<0.001;
-    return `<div class="row" style="padding:6px 0;border-top:1px solid var(--line);justify-content:space-between"><span>${esc(t.label)}</span><b class="mono"${cur?' style="color:var(--lime)"':''}>${Math.round(t.rate*100)}%</b></div>`}).join('');
+    return `<div class="row" style="padding:6px 0;border-top:1px solid var(--line);justify-content:space-between"><span>${esc(t.label)}</span><b class="mono"${cur?' style="color:var(--lime)"':''}>${Math.round(t.rate*100)}%</b></div>`}).join('')
+    +(a.elite?`<div class="row" style="padding:6px 0;border-top:1px solid var(--line);justify-content:space-between"><span>ELITE — locked for life</span><b class="mono" style="color:var(--lime)">50%</b></div>`:'');
   const next=A.nextTier?`<p class="sub" style="margin:8px 0 0">Refer <b class="mono">${usd(A.nextTier.atCents-s.revenueCents)}</b> more to unlock <b>${Math.round(A.nextTier.rate*100)}%</b>.</p>`:'';
   const ft=A.fastTrack&&!A.fastTrack.qualified
     ?`<div class="card" style="border:1px solid var(--lime)"><b>⚡ Fast track — 50% for life</b><p style="color:var(--stone)">Refer <b class="mono">${usd(A.fastTrack.targetCents)}</b> in your first 90 days — <b>${A.fastTrack.daysLeft} days</b> left, you're at <b class="mono">${usd(A.fastTrack.revenueCents)}</b>, <b>${A.fastTrack.spotsLeft} of 5</b> spots left — and you lock <b>50% for life</b>. Or climb the ladder to $50k referred: first 15 lock it in (<b>${A.ladderSpotsLeft} of 15</b> spots left).</p></div>`:'';
@@ -448,7 +453,7 @@ function affDash(A){const a=A.affiliate,s=A.stats;
   ${ft}
   <div class="card"><b>Commission tiers</b><div style="margin-top:6px">${ladder}</div>${next}</div>
   ${ideaCard}
-  ${a.tier=='partner'?'':affPartnerCard()}
+  ${a.tier=='partner'||a.elite?'':affPartnerCard()}
   ${A.recent.length?`<div class="card"><b>Recent referrals</b>${A.recent.map(r=>`<div class="row" style="padding:8px 0;border-top:1px solid var(--line);justify-content:space-between"><span class="pill">${esc(r.kind)}</span><span class="mono">${usd(r.commissionCents)}</span><span class="pill">${esc(r.payoutStatus)}</span></div>`).join('')}</div>`:''}`}
 function affPartnerCard(){return `<div class="card" style="border:1px solid var(--lime)"><b>Become a Partner — $4,999/year</b><p style="color:var(--stone)">Partners earn <b>40% commission</b> from day one, get early access to new features, and a direct line to pitch ideas for the app. Ideas you share become part of AIU; all business rights stay with the owner.</p><div class="row" style="margin-top:10px"><button class="btn lime" onclick="buyPartner()">Become a partner</button></div></div>`}
 async function buyPartner(){const r=await api('/api/billing/partner',{});if(r.ok&&r.data.url)location.href=r.data.url;else toast(r.data.error||'Partner checkout is not set up yet.')}
@@ -457,8 +462,9 @@ async function sendIdea(){const t=document.getElementById('ideaTitle'),b=documen
 /* ---------- billing ---------- */
 let BILL=null;
 async function billLoad(){const r=await api('/api/billing/status');BILL=r.ok?r.data:null;const b=document.getElementById('billbody');if(b&&view=='bill')b.innerHTML=billBodyHtml()}
+function planName(s){return {none:'No plan yet',partner:'Partner',lifetime:'Lifetime',active:'Subscription',trialing:'Free trial',incomplete:'Payment incomplete',incomplete_expired:'Payment expired',past_due:'Past due',canceled:'Canceled',unpaid:'Unpaid',paused:'Paused'}[s]||s}
 function billBodyHtml(){const b=BILL;
-  return b?`<div class="card"><div class="row" style="justify-content:space-between"><div><b style="font-size:20px">${esc(b.status)}</b><div style="color:var(--stone)">${b.isAdmin?'Owner account — full access, never billed.':b.active?'Your plan is active.':'No active subscription yet.'}</div></div><span class="pill"><span class="dot ${b.active?'':'off'}"></span>${b.active?'Active':'Inactive'}</span></div>
+  return b?`<div class="card"><div class="row" style="justify-content:space-between"><div><b style="font-size:20px">${esc(b.isAdmin?'Owner':planName(b.status))}</b><div style="color:var(--stone)">${b.isAdmin?'Owner account — full access, never billed.':b.active?'Your plan is active.':'No active subscription yet.'}</div></div><span class="pill"><span class="dot ${b.active?'':'off'}"></span>${b.active?'Active':'Inactive'}</span></div>
   <div class="row" style="margin-top:14px"><button class="btn lime" onclick="buyLifetime()">Lifetime access — $1,999</button><button class="btn" onclick="buyPartner()">Partner — $4,999/yr</button>${b.status!='none'&&!b.isAdmin?'<button class="btn ghost" onclick="portal()">Manage billing</button>':''}</div></div>
   ${!b.active&&!b.isAdmin?`<div class="card"><b>Subscribe monthly</b><p style="color:var(--stone)">7-day free trial, then monthly. Cancel any time.</p><div class="row" style="margin-top:10px">${['basic','pro','proplus'].map(p=>`<button class="btn ghost" onclick="checkout('${p}')">${p[0].toUpperCase()+p.slice(1)}</button>`).join('')}</div><p style="color:var(--stone);font-size:12px;margin-top:10px">All sales final — no refunds. Trials auto-convert to paid unless cancelled before they end.</p></div>`:''}`
   :'<div class="card">Loading...</div>';
@@ -656,13 +662,22 @@ function showCloneBox(){
   if(box) box.scrollIntoView({behavior:'smooth',block:'center'});
 }
 let EL_VOICES=[];
+/* Dedupe voice names in dropdowns: "My Voice" x5 becomes My Voice, My Voice (2)... */
+function voiceOptions(vs){
+  const seen={};
+  return (vs||[]).map(v=>{
+    const n=String(v.name||'Voice');seen[n]=(seen[n]||0)+1;
+    const label=seen[n]>1?`${n} (${seen[n]})`:n;
+    return `<option value="${esc(v.id)}">${esc(label)}</option>`;
+  }).join('');
+}
 async function loadElVoices(){
   const sel=document.getElementById('pElVoice');
   sel.innerHTML='<option value="">Loading voices…</option>';
   const r=await api('/api/assistant/voices');
   if(!r.ok){sel.innerHTML=isAdmin?'<option value="">ElevenLabs not connected — add the key in AI Tools → Integrations</option>':'<option value="">Premium voices unavailable right now</option>';return}
   EL_VOICES=r.data.voices||[];
-  sel.innerHTML=EL_VOICES.map(v=>`<option value="${esc(v.id)}">${esc(v.name)}</option>`).join('')||'<option value="">No voices found</option>';
+  sel.innerHTML=voiceOptions(EL_VOICES)||'<option value="">No voices found</option>';
   if(ASSISTANT_PERSONALITY.voiceProvider=='elevenlabs'&&ASSISTANT_PERSONALITY.voice) sel.value=ASSISTANT_PERSONALITY.voice;
 }
 async function cloneVoice(){
@@ -733,7 +748,7 @@ async function vcLoadVoices(){
   const r=await api('/api/assistant/voices');
   if(!r.ok){sel.innerHTML=isAdmin?'<option value="">ElevenLabs not connected — add the key in Assistant setup → Connections</option>':'<option value="">Premium voices unavailable right now</option>';return}
   const vs=r.data.voices||[];
-  sel.innerHTML=vs.map(v=>`<option value="${esc(v.id)}">${esc(v.name)}</option>`).join('')||'<option value="">No voices yet — clone yours below</option>';
+  sel.innerHTML=voiceOptions(vs)||'<option value="">No voices yet — clone yours below</option>';
   if(ASSISTANT_PERSONALITY.voiceProvider=='elevenlabs'&&ASSISTANT_PERSONALITY.voice) sel.value=ASSISTANT_PERSONALITY.voice;
 }
 function vcSelection(){
