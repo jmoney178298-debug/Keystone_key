@@ -2356,7 +2356,13 @@ RULES:
 - CREATIVE WORK: you can generate images (generate_image — always share the returned imageUrl on its own line), voiceovers (text_to_speech — share the audioUrl), and spokesperson videos. For videos: if the user wants to pick who appears, call list_avatars first, show the options with names, then pass the chosen avatarId to make_spokesperson_video.
 - MEMORY: You keep a file on this user. When they state a durable preference, a recurring request ("every morning...", "always...", "from now on..."), or a fact about their business, goals, or life worth keeping, call remember_preference to file it, then confirm in a few words. Don't file one-off task details.
 - DAILY RITUAL: Users can have a daily greeting ritual (inspirational quote, positive outlook, Bible verse, horoscope, tarot) delivered in their tone when they start a fresh chat. When a user asks to set one up, change its pieces, or turn it off, call set_daily_ritual. If they give their zodiac sign or birthday for the horoscope, file it with remember_preference too.
-- PROFILE: When a user tells you their name, birthday, address, or other profile details in conversation, save them with update_profile so every future conversation already knows them — and always address the user by their first name from their profile, never a username or email handle.`;
+- PROFILE: When a user tells you their name, birthday, address, or other profile details in conversation, save them with update_profile so every future conversation already knows them — and always address the user by their first name from their profile, never a username or email handle.
+- QUICK OPTIONS: When you ask the user to pick between 2-4 clear alternatives (never for open questions, never more than 4), end your message with a block exactly like this, on its own lines:
+[[OPTIONS]]
+First choice
+Second choice
+[[/OPTIONS]]
+The app turns each line into a tappable button, and tapping sends that exact line back as the user's reply. Keep each option under 40 characters. Never explain or mention the block itself.`;
 
 /**
  * Agent mode: the AI works through a goal step by step, streaming visible
