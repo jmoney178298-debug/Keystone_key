@@ -24,6 +24,12 @@ body{background:var(--ink);color:var(--txt);font:500 15px/1.6 'Inter',system-ui,
 .nav.on{color:var(--txt);background:rgba(45,212,191,.12)}
 .side .foot{margin-top:auto;padding:10px;display:flex;flex-direction:column;gap:8px}
 .pill{display:inline-block;border-radius:999px;padding:3px 12px;font-size:12px;font-weight:600;background:var(--panel2);color:var(--stone);border:1px solid var(--line)}
+/* Colorblind-safe: status is never carried by color alone — every status pairs color with an icon glyph and a text label. */
+.st-ok{border-color:var(--lime)!important;color:var(--lime)!important}
+.st-bad{border-color:#f66!important;color:#f66!important}
+.st-warn{border-color:#fbbf24!important;color:#fbbf24!important}
+:focus-visible{outline:2px solid var(--blaze);outline-offset:2px}
+@media (prefers-reduced-motion:reduce){*{animation-duration:.01ms!important;transition-duration:.01ms!important}}
 main{flex:1;overflow:auto;padding:28px;min-width:0;max-width:1040px;margin:0 auto;width:100%}
 h1{font:700 clamp(28px,4vw,42px)/1.1 'Inter',system-ui,sans-serif;margin:0 0 6px;color:#fff;letter-spacing:-.02em}
 h1 i{font-style:normal;color:var(--volt)}
@@ -348,7 +354,7 @@ async function funLoad(){
 setInterval(()=>{if(signedIn)funLoad()},30000);
 function vidListHtml(){
   return VIDS===null?'<div class="card">Loading...</div>':VIDS==='err'?`<div class="card"><b>Couldn't load videos</b><p style="color:var(--stone)">${esc(VIDSERR)}</p><div class="row" style="margin-top:10px"><button class="btn lime" onclick="VIDS=null;VIDSERR='';render();vidLoad()">Try again</button></div></div>`
-  :VIDS.length?VIDS.map(v=>`<div class="card"><div class="row" style="justify-content:space-between"><div><b>${esc(v.title||'Untitled')}</b> <span class="pill">${esc(v.format||'')}</span> <span class="pill">${esc(v.status||'')}</span></div>${v.status=='completed'&&v.videoUrl?`<button class="btn lime" onclick="window.open('${esc(v.videoUrl)}','_blank')">Watch</button>`:`<button class="btn ghost" onclick="vidCheck(${v.id})">Refresh</button>`}</div>${v.status=='failed'?`<p style="color:#f66">${esc(v.error||'Rendering failed.')}</p>`:v.status!='completed'?'<p class="sub">Rendering — check back in a few minutes.</p>':''}</div>`).join('')
+  :VIDS.length?VIDS.map(v=>`<div class="card"><div class="row" style="justify-content:space-between"><div><b>${esc(v.title||'Untitled')}</b> <span class="pill">${esc(v.format||'')}</span> <span class="pill">${esc(v.status||'')}</span></div>${v.status=='completed'&&v.videoUrl?`<button class="btn lime" onclick="window.open('${esc(v.videoUrl)}','_blank')">Watch</button>`:`<button class="btn ghost" onclick="vidCheck(${v.id})">Refresh</button>`}</div>${v.status=='failed'?`<p style="color:#f66">✕ ${esc(v.error||'Rendering failed.')}</p>`:v.status!='completed'?'<p class="sub">Rendering — check back in a few minutes.</p>':''}</div>`).join('')
   :'<div class="card"><p style="color:var(--stone)">No videos yet. Write a script below and your AI spokesperson will record it.</p></div>';
 }
 function studioListHtml(){
@@ -376,7 +382,7 @@ function viewFunnel(id,status,url){
   window.open(status=='live'?url:`/f/preview/${id}`,'_blank');
 }
 function funListHtml(){
-  const cards=(F||[]).map(f=>`<div class="card"><div class="row" style="justify-content:space-between"><div><b>${esc(f.title||'Untitled')}</b> <span class="pill">${esc(f.industry||'')}</span> <span class="pill">${f.status=='live'?'● live':'draft'}</span></div><div class="row" style="gap:6px"><button class="btn ghost" onclick="viewFunnel(${f.id},'${f.status}','${esc(f.url||('/f/'+f.slug))}')">View</button><button class="btn ${f.status=='live'?'ghost':'lime'}" onclick="funPublish(${f.id},'${f.status=='live'?'draft':'live'}')">${f.status=='live'?'Unpublish':'Publish'}</button></div></div><p class="sub">${esc(f.url||'')} · ${f.leads??0} leads · ${f.views??0} views</p></div>`).join('')||'<div class="card"><p style="color:var(--stone)">No funnels yet — build your first one above, or just ask in Chat.</p></div>';
+  const cards=(F||[]).map(f=>`<div class="card"><div class="row" style="justify-content:space-between"><div><b>${esc(f.title||'Untitled')}</b> <span class="pill">${esc(f.industry||'')}</span> ${f.status=='live'?'<span class="pill st-ok">● live</span>':'<span class="pill">draft</span>'}</div><div class="row" style="gap:6px"><button class="btn ghost" onclick="viewFunnel(${f.id},'${f.status}','${esc(f.url||('/f/'+f.slug))}')">View</button><button class="btn ${f.status=='live'?'ghost':'lime'}" onclick="funPublish(${f.id},'${f.status=='live'?'draft':'live'}')">${f.status=='live'?'Unpublish':'Publish'}</button></div></div><p class="sub">${esc(f.url||'')} · ${f.leads??0} leads · ${f.views??0} views</p></div>`).join('')||'<div class="card"><p style="color:var(--stone)">No funnels yet — build your first one above, or just ask in Chat.</p></div>';
   const leads=(FL||[]).slice(0,25).map(l=>`<div class="card"><div class="row" style="justify-content:space-between"><b>${esc(l.name||'Lead')}</b><span class="pill">${esc(l.status||'new')}</span></div><p class="sub">${esc(l.email||'')} ${esc(l.phone||'')}</p></div>`).join('');
   return cards+(leads?`<h3 style="margin:18px 0 8px">Recent leads</h3>${leads}`:'');
 }
@@ -394,7 +400,7 @@ function toolsHtml(){
   if(!TOOLS_SVCS.length)return '<p class="sub">Could not load services.</p>';
   const CATS=["Chat","Image","Video","Voice","Search","All-in-one"];
   const card=s=>{
-    const badge=isAdmin?(s.connected?'<span class="pill" style="border-color:var(--lime);color:var(--lime)">Connected</span>':'<span class="pill" style="color:#f66;border-color:#f66">Not connected</span>'):'';
+    const badge=isAdmin?(s.connected?'<span class="pill st-ok">✓ Connected</span>':'<span class="pill st-bad">✕ Not connected</span>'):'';
     const tools=(s.tools||[]).map(t=>`<span class="pill" style="font-size:11px">${t}</span>`).join(' ');
     let action='';
     if(isAdmin&&s.builtin){action=`<p class="sub" style="margin-top:8px">Key: <code>${s.envVar||''}</code> (server)</p>`}
@@ -422,7 +428,7 @@ function subsHtml(){
   if(!SUBS.length)return '<p class="sub">No subscriptions tracked yet. Add every AI tool you pay for below — never get surprised by a renewal again.</p>';
   const total=SUBS.filter(s=>s.status==='active').reduce((a,s)=>a+(s.billingCycle==='monthly'?(s.costCents||0):s.billingCycle==='yearly'?(s.costCents||0)/12:0),0);
   const rows=SUBS.map(s=>{
-    const warn=s.urgent?'<span class="pill" style="border-color:#fbbf24;color:#fbbf24">Renews soon</span>':s.daysUntil!=null?`<span class="pill">${s.daysUntil}d</span>`:'';
+    const warn=s.urgent?'<span class="pill st-warn">⚠ Renews soon</span>':s.daysUntil!=null?`<span class="pill">${s.daysUntil}d</span>`:'';
     const cyc=s.billingCycle==='trial'?'Trial':s.billingCycle;
     return `<div class="card" style="margin-bottom:8px"><div class="row" style="justify-content:space-between;align-items:center"><b>${s.serviceName}</b>${warn}</div><p class="sub">${s.planName||''} · ${cyc} · ${subMoney(s.costCents,s.currency)}${s.status!=='active'?' · '+s.status:''}</p><div class="row" style="gap:8px;margin-top:6px">${s.cancelUrl?`<a class="btn" href="${s.cancelUrl}" target="_blank">Cancel page</a>`:''}${s.status==='active'?`<button class="btn" onclick="subCancel(${s.id})">Mark canceled</button>`:''}<button class="btn" onclick="subDel(${s.id})">Remove</button></div></div>`;
   }).join('');
@@ -485,7 +491,7 @@ async function admLoad(){
     const [o,subs,ls,affs,refs,ideaz,hits,sess]=await Promise.all([g('/api/admin/overview'),g('/api/admin/subscribers'),g('/api/admin/leads'),g('/api/admin/affiliates'),g('/api/admin/referrals?status=pending'),g('/api/admin/ideas'),g('/api/admin/limit-hits'),g('/api/admin/sessions')]);
     if(!el())return;
     let SVCS=[];try{const ri=await api('/api/integrations');if(ri.ok)SVCS=ri.data.services||[]}catch(e){SVCS=[]}
-    const svcCard=SVCS.length?`<div class="card"><b>AI services</b><div style="color:var(--stone);font-size:13px;margin-bottom:4px">Connection health — owner only.<button class="btn ghost" style="margin-left:8px" onclick="setView('tools')">Fix in AI Tools</button></div>${SVCS.map(s=>`<div class="row" style="padding:8px 0;border-top:1px solid var(--line);justify-content:space-between"><b>${esc(s.name)}</b><span class="pill" style="${s.connected?'border-color:var(--lime);color:var(--lime)':'color:#f66;border-color:#f66'}">${s.connected?'Connected':'Down'}</span></div>`).join('')}</div>`:'';
+    const svcCard=SVCS.length?`<div class="card"><b>AI services</b><div style="color:var(--stone);font-size:13px;margin-bottom:4px">Connection health — owner only.<button class="btn ghost" style="margin-left:8px" onclick="setView('tools')">Fix in AI Tools</button></div>${SVCS.map(s=>`<div class="row" style="padding:8px 0;border-top:1px solid var(--line);justify-content:space-between"><b>${esc(s.name)}</b><span class="pill ${s.connected?'st-ok':'st-bad'}">${s.connected?'✓ Connected':'✕ Down'}</span></div>`).join('')}</div>`:'';
     const c=s=>(o.subscribers.find(x=>x.status==s)||{n:0}).n;
     el().innerHTML=`<div class="grid"><div class="card"><label>Trialing</label><div class="stat mono">${c('trialing')}</div></div><div class="card"><label>Paying</label><div class="stat mono">${c('active')}</div></div><div class="card"><label>New demo requests</label><div class="stat mono">${o.newInboundLeads}</div></div><div class="card"><label>Won revenue</label><div class="stat mono">${money(o.wonRevenue)}</div></div></div>
     ${svcCard}<div class="card"><b>Pending referral payouts</b>${refs.map(r=>`<div class="row" style="padding:8px 0;border-top:1px solid var(--line);justify-content:space-between"><span class="pill">${esc(r.kind)}</span><span class="mono">${usd(r.commissionCents)}</span><button class="btn ghost" onclick="refPay(${r.id})">Mark paid</button></div>`).join('')||'<p style="color:var(--stone)">None pending.</p>'}</div>
