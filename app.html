@@ -365,7 +365,7 @@ async function funPublish(id,status){const r=await api('/api/funnels/'+id+'/publ
 function vFunnels(){return `<div class="fade"><h1>Fun<i>nels</i> & Leads</h1><p class="sub">Your lead funnels and the customers they capture. Build here, or just ask in Chat.</p><div class="card"><b>Quick builder</b><div class="row" style="gap:8px;flex-wrap:wrap;margin-top:8px"><input id="fnBiz" placeholder="Business name" style="flex:1;min-width:150px"><input id="fnInd" placeholder="Industry (e.g. roofing)" style="flex:1;min-width:150px"><button class="btn lime" onclick="funCreate()">Build funnel</button></div></div><div id="funbody">${funListHtml()}</div></div>`}
 function vVideos(){return `<div class="fade"><h1>Vid<i>eos</i></h1><p class="sub">AI spokesperson videos for your business.</p><div class="card"><b>New video</b><textarea id="vidScript" placeholder="Write what your spokesperson should say..." style="min-height:80px;margin-top:8px"></textarea><div class="row" style="gap:8px;margin-top:8px;flex-wrap:wrap"><select id="vidFormat" style="max-width:180px"><option value="landscape">Landscape 16:9</option><option value="portrait">Portrait 9:16</option><option value="square">Square 1:1</option></select><button class="btn lime" onclick="vidCreate()">Render video</button></div></div><div id="vidbody">${vidListHtml()}</div></div>`}
 function vStudio(){return `<div class="fade"><h1>Stu<i>dio</i></h1><p class="sub">Images, voiceovers, and background removal.</p><div class="card"><b>Create an image</b><div class="row" style="gap:8px;margin-top:8px;flex-wrap:wrap"><input id="stPrompt" placeholder="Describe the image..." style="flex:1;min-width:200px"><button class="btn lime" onclick="studioImage()">Generate</button></div></div><div class="card"><b>Voiceover</b><textarea id="stText" placeholder="Text to speak..." style="min-height:60px;margin-top:8px"></textarea><div class="row" style="margin-top:8px"><button class="btn lime" onclick="studioTts()">Record voiceover</button></div></div><div class="card"><b>Remove a background</b><div class="row" style="gap:8px;margin-top:8px;flex-wrap:wrap"><input id="stBgUrl" placeholder="Paste an image URL..." style="flex:1;min-width:200px"><button class="btn lime" onclick="studioBg()">Remove background</button></div></div><div id="studiobody">${studioListHtml()}</div></div>`}
-function vTools(){return `<div class="fade"><h1>AI <i>Tools</i></h1><p class="sub">The AI services wired into your assistant. Connect your own keys to unlock more.</p><div id="toolsbody">${toolsHtml()}</div></div>`}
+function vTools(){return `<div class="fade"><h1>AI <i>Tools</i></h1><p class="sub">${isAdmin?'The AI services wired into your assistant. Connect or update keys here.':'The AI services powering your assistant.'}</p><div id="toolsbody">${toolsHtml()}</div></div>`}
 function vAff(){return `<div class="fade"><h1>Affi<i>liates</i></h1><p class="sub">Share your link and earn on every subscriber — climb from 15% to a lifetime 50%.</p><div id="affbody">${affBodyHtml()}</div></div>`}
 /* ---------- AI Tools hub ---------- */
 let TOOLS_SVCS=[];
@@ -373,13 +373,12 @@ async function toolsLoad(){try{const r=await api('/api/integrations');TOOLS_SVCS
 function toolsHtml(){
   if(!TOOLS_SVCS.length)return '<p class="sub">Could not load services.</p>';
   return TOOLS_SVCS.map(s=>{
-    const badge=s.connected?'<span class="pill" style="border-color:var(--lime);color:var(--lime)">Connected</span>':'<span class="pill">Not connected</span>';
+    const badge=isAdmin?(s.connected?'<span class="pill" style="border-color:var(--lime);color:var(--lime)">Connected</span>':'<span class="pill" style="color:#f66;border-color:#f66">Not connected</span>'):'';
     const tools=(s.tools||[]).map(t=>`<span class="pill" style="font-size:11px">${t}</span>`).join(' ');
     let action='';
-    if(s.builtin){action=`<p class="sub" style="margin-top:8px">Key: <code>${s.envVar||''}</code> (server)</p>`}
+    if(isAdmin&&s.builtin){action=`<p class="sub" style="margin-top:8px">Key: <code>${s.envVar||''}</code> (server)</p>`}
     else if(s.connected&&isAdmin){action=`<div class="row" style="margin-top:8px;gap:8px"><input id="key-${s.id}" type="password" placeholder="Paste new key to update..." style="flex:1;background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px;color:var(--txt)"><button class="btn" onclick="saveKey('${s.id}')">Update</button><button class="btn" onclick="delKey('${s.id}')">Remove</button></div>`}
     else if(!s.connected&&isAdmin){action=`<div class="row" style="margin-top:8px;gap:8px"><input id="key-${s.id}" type="password" placeholder="Paste API key..." style="flex:1;background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px;color:var(--txt)"><button class="btn lime" onclick="saveKey('${s.id}')">Connect</button></div><p class="sub" style="margin-top:6px">Get a key: ${s.keyHint}</p>`}
-    else if(!s.connected){action='<p class="sub" style="margin-top:8px">Ask the owner to connect this service.</p>'}
     return `<div class="card"><div class="row" style="justify-content:space-between;align-items:center"><b>${s.name}</b>${badge}</div><p class="sub">${s.description}</p><div style="margin:8px 0">${tools}</div>${action}</div>`;
   }).join('');
 }
@@ -457,9 +456,11 @@ async function admLoad(){
   try{
     const [o,subs,ls,affs,refs,ideaz,hits,sess]=await Promise.all([g('/api/admin/overview'),g('/api/admin/subscribers'),g('/api/admin/leads'),g('/api/admin/affiliates'),g('/api/admin/referrals?status=pending'),g('/api/admin/ideas'),g('/api/admin/limit-hits'),g('/api/admin/sessions')]);
     if(!el())return;
+    let SVCS=[];try{const ri=await api('/api/integrations');if(ri.ok)SVCS=ri.data.services||[]}catch(e){SVCS=[]}
+    const svcCard=SVCS.length?`<div class="card"><b>AI services</b><div style="color:var(--stone);font-size:13px;margin-bottom:4px">Connection health — owner only.<button class="btn ghost" style="margin-left:8px" onclick="setView('tools')">Fix in AI Tools</button></div>${SVCS.map(s=>`<div class="row" style="padding:8px 0;border-top:1px solid var(--line);justify-content:space-between"><b>${esc(s.name)}</b><span class="pill" style="${s.connected?'border-color:var(--lime);color:var(--lime)':'color:#f66;border-color:#f66'}">${s.connected?'Connected':'Down'}</span></div>`).join('')}</div>`:'';
     const c=s=>(o.subscribers.find(x=>x.status==s)||{n:0}).n;
     el().innerHTML=`<div class="grid"><div class="card"><label>Trialing</label><div class="stat mono">${c('trialing')}</div></div><div class="card"><label>Paying</label><div class="stat mono">${c('active')}</div></div><div class="card"><label>New demo requests</label><div class="stat mono">${o.newInboundLeads}</div></div><div class="card"><label>Won revenue</label><div class="stat mono">${money(o.wonRevenue)}</div></div></div>
-    <div class="card"><b>Pending referral payouts</b>${refs.map(r=>`<div class="row" style="padding:8px 0;border-top:1px solid var(--line);justify-content:space-between"><span class="pill">${esc(r.kind)}</span><span class="mono">${usd(r.commissionCents)}</span><button class="btn ghost" onclick="refPay(${r.id})">Mark paid</button></div>`).join('')||'<p style="color:var(--stone)">None pending.</p>'}</div>
+    ${svcCard}<div class="card"><b>Pending referral payouts</b>${refs.map(r=>`<div class="row" style="padding:8px 0;border-top:1px solid var(--line);justify-content:space-between"><span class="pill">${esc(r.kind)}</span><span class="mono">${usd(r.commissionCents)}</span><button class="btn ghost" onclick="refPay(${r.id})">Mark paid</button></div>`).join('')||'<p style="color:var(--stone)">None pending.</p>'}</div>
     <div class="card"><b>Affiliates</b>${affs.map(a=>`<div class="row" style="padding:8px 0;border-top:1px solid var(--line);justify-content:space-between"><span class="mono">${esc(a.code)}</span><span style="font-size:13px;color:var(--stone)">${esc(a.email||'')}${a.phone?' · '+esc(a.phone):''}${a.address?' · '+esc(a.address):''}</span><span class="pill">${esc(a.tier)} · ${esc(a.status)}${a.elite?' · <b style="color:var(--lime)">50% LIFE</b>':''}</span><span class="mono">${usd(a.earnedCents)}</span><span class="row">${a.elite?`<button class="btn danger" onclick="affElite(${a.id},0)">Revoke 50%</button>`:`<button class="btn ghost" onclick="affElite(${a.id},1)">Grant 50%</button>`}${a.status=='active'?`<button class="btn danger" onclick="affStatus(${a.id},'paused')">Pause</button>`:`<button class="btn ghost" onclick="affStatus(${a.id},'active')">Resume</button>`}</span></div>`).join('')||'<p style="color:var(--stone)">None yet.</p>'}</div>
     <div class="card"><b>Partner ideas</b>${ideaz.map(x=>`<div style="padding:8px 0;border-top:1px solid var(--line)"><b>${esc(x.title)}</b> <span class="pill">${esc(x.status)}</span><div style="color:var(--stone);font-size:13px">${esc(x.body)}</div><div class="row" style="margin-top:6px">${['reviewing','shipped','declined'].map(s=>`<button class="btn ghost" onclick="ideaStatus(${x.id},'${s}')">${s}</button>`).join('')}</div></div>`).join('')||'<p style="color:var(--stone)">None yet.</p>'}</div>
     <div class="card"><b>Demo requests</b>${ls.map(l=>`<div style="padding:8px 0;border-top:1px solid var(--line)"><b>${esc(l.name)}</b> <span class="pill">${esc(l.status)}</span><div style="color:var(--stone)">${esc(l.email)} ${esc(l.company||'')} ${esc(l.message||'')}</div><div class="row" style="margin-top:6px">${['contacted','won','lost'].map(s=>`<button class="btn ghost" onclick="admSet(${l.id},'${s}')">${s}</button>`).join('')}</div></div>`).join('')||'<p style="color:var(--stone)">None yet.</p>'}</div>
@@ -562,7 +563,7 @@ function openSettings(){
         </div>
         <div class="row" style="gap:8px;align-items:center;margin-top:8px"><span class="sub">Zodiac sign:</span><select id="pRitualSign" style="max-width:200px"><option value="">Not set</option><option>Aries</option><option>Taurus</option><option>Gemini</option><option>Cancer</option><option>Leo</option><option>Virgo</option><option>Libra</option><option>Scorpio</option><option>Sagittarius</option><option>Capricorn</option><option>Aquarius</option><option>Pisces</option></select></div>
       </div>
-      <div class="setsec"><h3>Connections</h3><p class="sub">Connect AI services with your own keys.</p><div id="setTools"><div class="card">Loading...</div></div></div>
+      <div class="setsec"><h3>Connections</h3><p class="sub">${isAdmin?'Connect AI services with your own keys.':'The AI services powering your assistant.'}</p><div id="setTools"><div class="card">Loading...</div></div></div>
       <div class="row"><button class="btn lime" onclick="savePersonality().then(()=>{closeSettings();toast('Assistant updated.')})">Save</button></div>
     </div>`;
     document.body.appendChild(bg);
@@ -637,7 +638,7 @@ async function loadElVoices(){
   const sel=document.getElementById('pElVoice');
   sel.innerHTML='<option value="">Loading voices…</option>';
   const r=await api('/api/assistant/voices');
-  if(!r.ok){sel.innerHTML='<option value="">ElevenLabs not connected — add the key in AI Tools → Integrations</option>';return}
+  if(!r.ok){sel.innerHTML=isAdmin?'<option value="">ElevenLabs not connected — add the key in AI Tools → Integrations</option>':'<option value="">Premium voices unavailable right now</option>';return}
   EL_VOICES=r.data.voices||[];
   sel.innerHTML=EL_VOICES.map(v=>`<option value="${esc(v.id)}">${esc(v.name)}</option>`).join('')||'<option value="">No voices found</option>';
   if(ASSISTANT_PERSONALITY.voiceProvider=='elevenlabs'&&ASSISTANT_PERSONALITY.voice) sel.value=ASSISTANT_PERSONALITY.voice;
@@ -708,7 +709,7 @@ async function vcLoadVoices(){
   const sel=document.getElementById('vcElVoice');
   sel.innerHTML='<option value="">Loading voices…</option>';
   const r=await api('/api/assistant/voices');
-  if(!r.ok){sel.innerHTML='<option value="">ElevenLabs not connected — add the key in Assistant setup → Connections</option>';return}
+  if(!r.ok){sel.innerHTML=isAdmin?'<option value="">ElevenLabs not connected — add the key in Assistant setup → Connections</option>':'<option value="">Premium voices unavailable right now</option>';return}
   const vs=r.data.voices||[];
   sel.innerHTML=vs.map(v=>`<option value="${esc(v.id)}">${esc(v.name)}</option>`).join('')||'<option value="">No voices yet — clone yours below</option>';
   if(ASSISTANT_PERSONALITY.voiceProvider=='elevenlabs'&&ASSISTANT_PERSONALITY.voice) sel.value=ASSISTANT_PERSONALITY.voice;
