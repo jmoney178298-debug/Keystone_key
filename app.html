@@ -2,7 +2,7 @@
 <html lang="en"><head><meta charset="utf-8"><title>AIU: Amp It Up</title>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <link rel="manifest" href="/pwa/manifest.json">
-<meta name="theme-color" content="#0d1114">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'%3E%3Crect width='48' height='48' rx='12' fill='%2314191d'/%3E%3Cpath d='M10 33 L24 11 L38 33' stroke='%232dd4bf' stroke-width='6.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3Ccircle cx='24' cy='36' r='3.2' fill='%232dd4bf'/%3E%3C/svg%3E"><meta name="theme-color" content="#0d1114">
 <link rel="apple-touch-icon" href="/pwa/apple-touch-icon.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -470,9 +470,9 @@ let BILL=null;
 async function billLoad(){const r=await api('/api/billing/status');BILL=r.ok?r.data:null;const b=document.getElementById('billbody');if(b&&view=='bill')b.innerHTML=billBodyHtml()}
 function planName(s){return {none:'No plan yet',partner:'Partner',lifetime:'Lifetime',active:'Subscription',trialing:'Free trial',incomplete:'Payment incomplete',incomplete_expired:'Payment expired',past_due:'Past due',canceled:'Canceled',unpaid:'Unpaid',paused:'Paused'}[s]||s}
 function billBodyHtml(){const b=BILL;
-  return b?`<div class="card"><div class="row" style="justify-content:space-between"><div><b style="font-size:20px">${esc(b.isAdmin?'Owner':planName(b.status))}</b><div style="color:var(--stone)">${b.isAdmin?'Owner account — full access, never billed.':b.active?'Your plan is active.':'No active subscription yet.'}</div></div><span class="pill"><span class="dot ${b.active?'':'off'}"></span>${b.active?'Active':'Inactive'}</span></div>
-  <div class="row" style="margin-top:14px"><button class="btn lime" onclick="buyLifetime()">Lifetime access — $1,999</button><button class="btn" onclick="buyPartner()">Partner — $4,999/yr</button>${b.status!='none'&&!b.isAdmin?'<button class="btn ghost" onclick="portal()">Manage billing</button>':''}</div></div>
-  ${!b.active&&!b.isAdmin?`<div class="card"><b>Subscribe monthly</b><p style="color:var(--stone)">7-day free trial, then monthly. Cancel any time.</p><div class="row" style="margin-top:10px">${['basic','pro','proplus'].map(p=>`<button class="btn ghost" onclick="checkout('${p}')">${p[0].toUpperCase()+p.slice(1)}</button>`).join('')}</div><p style="color:var(--stone);font-size:12px;margin-top:10px">All sales final — no refunds. Trials auto-convert to paid unless cancelled before they end.</p></div>`:''}`
+  return b?`${!b.active&&!b.isAdmin?`<div class="card"><b>Subscribe monthly</b><p style="color:var(--stone)">7-day free trial, then monthly. Cancel any time.</p><div class="row" style="margin-top:10px">${['basic','pro','proplus'].map(p=>`<button class="btn ghost" onclick="checkout('${p}')">${p[0].toUpperCase()+p.slice(1)}</button>`).join('')}</div><p style="color:var(--stone);font-size:12px;margin-top:10px">All sales final — no refunds. Trials auto-convert to paid unless cancelled before they end.</p></div>`:''}
+  <div class="card"><div class="row" style="justify-content:space-between"><div><b style="font-size:20px">${esc(b.isAdmin?'Owner':planName(b.status))}</b><div style="color:var(--stone)">${b.isAdmin?'Owner account — full access, never billed.':b.active?'Your plan is active.':'No active subscription yet.'}</div></div><span class="pill"><span class="dot ${b.active?'':'off'}"></span>${b.active?'Active':'Inactive'}</span></div>
+  <div class="row" style="margin-top:14px"><button class="btn lime" onclick="buyLifetime()">Lifetime access — $1,999</button><button class="btn" onclick="buyPartner()">Partner — $4,999/yr</button>${b.status!='none'&&!b.isAdmin?'<button class="btn ghost" onclick="portal()">Manage billing</button>':''}</div></div>`
   :'<div class="card">Loading...</div>';
 }
 function vBill(){

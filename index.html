@@ -5,7 +5,7 @@
 <link rel="canonical" href="https://www.getaiu.online/">
 <script type="application/ld+json">[{"@id":"https://www.getaiu.online/#organization","url":"https://www.getaiu.online/","name":"AIU","@type":"Organization","sameAs":["https://www.getaiu.online/"],"@context":"https://schema.org","description":"AIU is a personal AI assistant that learns and adapts to each user. It builds lead funnels, websites, apps, and videos, and manages leads."},{"@id":"https://www.getaiu.online/#website","url":"https://www.getaiu.online/","name":"AIU: Amp It Up","@type":"WebSite","@context":"https://schema.org","publisher":{"@id":"https://www.getaiu.online/#organization"},"inLanguage":"en","description":"AIU is your personal AI assistant that learns you. Chat, build funnels, create videos and websites — it remembers every conversation and gets better."},{"@id":"https://www.getaiu.online/#webpage","url":"https://www.getaiu.online/","name":"AIU — The AI Assistant That Learns You","@type":"WebPage","about":{"@id":"https://www.getaiu.online/#software"},"@context":"https://schema.org","headline":"AIU","isPartOf":{"@id":"https://www.getaiu.online/#website"},"publisher":{"@id":"https://www.getaiu.online/#organization"},"inLanguage":"en","mainEntity":{"@id":"https://www.getaiu.online/#software"},"description":"AIU is your personal AI assistant that adapts and understands you after every conversation. Lifetime access $1,999."},{"@id":"https://www.getaiu.online/#software","url":"https://www.getaiu.online/","name":"AIU","@type":"SoftwareApplication","offers":[{"@id":"https://www.getaiu.online/#aiu-lifetime-offer","url":"https://www.getaiu.online/","name":"AIU Lifetime","@type":"Offer","price":"1999","description":"Lifetime access to AIU, including the adaptive AI assistant, unlimited funnels, websites and apps, lead capture, pipeline management, instant lead alerts, AI videos and studio tools, affiliate dashboard access, and future updates.","availability":"https://schema.org/InStock","priceCurrency":"USD","priceSpecification":{"@type":"PriceSpecification","price":"1999","unitText":"one-time payment","priceCurrency":"USD"}},{"@id":"https://www.getaiu.online/#aiu-partner-offer","url":"https://www.getaiu.online/","name":"AIU Partner","@type":"Offer","price":"4999","description":"AIU Partner membership with all Lifetime features, referral commissions, early access to new features, and a direct line for product ideas.","availability":"https://schema.org/InStock","priceCurrency":"USD","priceSpecification":{"@type":"PriceSpecification","price":"4999","unitText":"year","priceCurrency":"USD"}}],"@context":"https://schema.org","publisher":{"@id":"https://www.getaiu.online/#organization"},"description":"A personal AI assistant that learns you — chat, build lead funnels, create websites, apps and videos, capture and manage leads.","featureList":["Adaptive AI assistant that learns you","Build lead funnels","Create websites and apps","AI spokesperson videos","AI image and voiceover studio","Lead capture and pipeline management","Instant lead alerts","Affiliate dashboard"],"alternateName":"AIU: Amp It Up","operatingSystem":"Web","applicationCategory":["BusinessApplication","WebApplication","ProductivityApplication"]}]</script>
 <link rel="manifest" href="/pwa/manifest.json">
-<meta name="theme-color" content="#0d1114">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'%3E%3Crect width='48' height='48' rx='12' fill='%2314191d'/%3E%3Cpath d='M10 33 L24 11 L38 33' stroke='%232dd4bf' stroke-width='6.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3Ccircle cx='24' cy='36' r='3.2' fill='%232dd4bf'/%3E%3C/svg%3E"><meta name="theme-color" content="#0d1114">
 <link rel="apple-touch-icon" href="/pwa/apple-touch-icon.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -241,9 +241,13 @@ input:focus,textarea:focus,select:focus{outline:none;border-color:var(--accent);
 <section class="sec" id="pricing"><div class="wrap">
   <div class="sec-head">
     <div class="eyebrow">Pricing</div>
-    <h2>One payment. <span class="accent">Yours forever.</span></h2>
-    <p>Or start monthly — every plan begins with a 7-day free trial. Cancel anytime from your account; access continues to the end of your paid period.</p>
+    <h2>Start <span class="accent">monthly</span>. Or pay once, yours forever.</h2>
+    <p>Every monthly plan begins with a 7-day free trial. Card required — you're only charged when the trial ends. Cancel anytime from your account; access continues to the end of your paid period.</p>
   </div>
+  <div class="price-grid" id="grid"></div>
+  <p id="perr" role="alert"></p>
+  <h2 style="margin:64px 0 8px;font-size:clamp(24px,3.4vw,36px)">Or pay <span class="accent">once</span></h2>
+  <p style="color:var(--muted);margin:0 0 8px">One payment, never again — or join as a Partner for serious builders &amp; promoters.</p>
   <div class="price-grid">
     <div class="price-card hot"><span class="flag">MOST POPULAR</span>
       <h3>AIU Lifetime</h3><div class="amt">$1,999 <span>once</span></div><div class="per">Pay once. Never pay again.</div>
@@ -256,10 +260,6 @@ input:focus,textarea:focus,select:focus{outline:none;border-color:var(--accent);
       <button class="btn btn-ghost" style="width:100%" onclick="buyPartner()">Become a partner</button>
     </div>
   </div>
-  <h2 style="margin:64px 0 8px;font-size:clamp(24px,3.4vw,36px)">Or start <span class="accent">monthly</span></h2>
-  <p style="color:var(--muted);margin:0 0 8px">7-day free trial on every plan. Card required — you're only charged when the trial ends.</p>
-  <div class="price-grid" id="grid"></div>
-  <p id="perr" role="alert"></p>
   <div class="billing-note">
     <b style="color:var(--txt)">Billing terms:</b> Monthly plans renew automatically until cancelled. Trials convert to paid automatically unless cancelled before the trial ends — it's on you to cancel in time. <b style="color:var(--txt)">All sales are final; we do not offer refunds.</b> See the <a href="#legal" onclick="document.getElementById('legal-refunds').open=true;document.getElementById('legal-refunds').scrollIntoView({behavior:'smooth'})">Refund Policy</a> below for details.
   </div>
