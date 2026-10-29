@@ -11,7 +11,7 @@ import Stripe from "stripe";
 import crypto from "node:crypto";
 import { db, sqlite } from "./db";
 import { auth, enabledSocialProviders } from "./auth";
-import { affiliates, aiSubscriptions, aiUsage, assistantConversations, assistantMessages, blgPosts, contentJobs, funnels, funnelLeads, ideas, integrationKeys, leads, lifetimeAccess, limitHits, mediaJobs, partnerAccess, prospects, referrals, stripeEvents, subscriptions, trialIps, userSettings, videoJobs } from "./schema";
+import { affiliates, aiSubscriptions, aiUsage, assistantConversations, assistantMessages, blgPosts, contentJobs, funnels, funnelLeads, ideas, integrationKeys, leads, lifetimeAccess, limitHits, mediaJobs, partnerAccess, prospects, referrals, setupFees, stripeEvents, subscriptions, trialIps, userSettings, videoJobs } from "./schema";
 import { blgConfigured, blgGetArticle, blgListArticles, blgSyncArticles, blgUpsertArticle } from "./blg";
 import { heygenConfigured, heygenGenerateVideo, heygenVideoStatus, heygenListAvatars } from "./heygen";
 import fs from "node:fs";
@@ -166,7 +166,6 @@ async function eliteCount(kind: string): Promise<number> {
  */
 /** Owner house affiliate: the owner's own affiliate account. Sales and trials that no
  * other affiliate earned fall to it, so the owner gets paid on every user. */
-const TRIAL_BOUNTY_CENTS = 1000; // $10 to the owner for every free trial started
 /** Unreferred sales pay the owner the full amount charged — the plan's first month
  * on subscriptions ($25 Basic / $50 Pro / $75 Pro+), the full price on one-time
  * buys (Lifetime / Partner). The owner matching the pricing was his explicit call. */
@@ -218,12 +217,22 @@ async function stripeCall<T>(fn: () => Promise<T>): Promise<T> {
   }
 }
 
+async function hasSetupFee(userId: string): Promise<boolean> {
+  if (!process.env.STRIPE_PRICE_SETUP_FEE) return false;
+  const [fee] = await db.select().from(setupFees).where(eq(setupFees.userId, userId));
+  return !!fee;
+}
+
 keystone.post("/api/billing/checkout", requireUser, async (c) => {
   try {
   const user = c.get("user");
   const { plan } = await c.req.json().catch(() => ({ plan: "pro" }));
   const price = PRICES[plan as string];
   if (!price) return c.json({ error: "Unknown plan. Use basic, pro or proplus." }, 400);
+  // $5 setup fee (when configured): monthly checkout requires a recorded fee payment.
+  if (process.env.STRIPE_PRICE_SETUP_FEE && !c.get("isAdmin") && !(await hasSetupFee(user.id))) {
+    return c.json({ error: "A one-time setup fee is required before starting a trial.", code: "setup_fee_required" }, 402);
+  }
   const [prev] = await db.select().from(subscriptions).where(eq(subscriptions.userId, user.id));
   // One free trial per IP: blocks trial abuse via new emails/accounts.
   const ip = c.req.header("x-forwarded-for")?.split(",")[0]?.trim() || c.req.header("cf-connecting-ip") || "";
@@ -243,6 +252,29 @@ keystone.post("/api/billing/checkout", requireUser, async (c) => {
     subscription_data: { metadata: { userId: user.id, ...(affCode ? { affCode } : {}) }, ...(trialDays > 0 ? { trial_period_days: trialDays } : {}) },
     allow_promotion_codes: true,
     success_url: `${APP_URL}/app/billing?status=success`,
+    cancel_url: `${APP_URL}/app/billing?status=cancelled`,
+  }));
+  return c.json({ url: session.url });
+  } catch (e: any) { return c.json({ error: e?.error || "Checkout failed." }, e?.status ?? 500); }
+});
+
+/** One-time $5 setup fee. Needs STRIPE_PRICE_SETUP_FEE in env. Charged once per account. */
+keystone.post("/api/billing/setup-fee", requireUser, async (c) => {
+  try {
+  const price = process.env.STRIPE_PRICE_SETUP_FEE;
+  if (!price) return c.json({ error: "Setup fee is not configured yet." }, 400);
+  if (c.get("isAdmin")) return c.json({ error: "Owner account is never billed." }, 400);
+  const user = c.get("user");
+  const [existing] = await db.select().from(setupFees).where(eq(setupFees.userId, user.id));
+  if (existing) return c.json({ error: "Setup fee already paid." }, 400);
+  const affCode = await referralCodeFor(c, user.id);
+  const session = await stripeCall(async () => stripe.checkout.sessions.create({
+    mode: "payment",
+    customer: await customerFor(user),
+    line_items: [{ price, quantity: 1 }],
+    client_reference_id: user.id,
+    metadata: { kind: "setup_fee", ...(affCode ? { affCode } : {}) },
+    success_url: `${APP_URL}/app/billing?status=setup_fee_paid`,
     cancel_url: `${APP_URL}/app/billing?status=cancelled`,
   }));
   return c.json({ url: session.url });
@@ -350,6 +382,8 @@ keystone.get("/api/billing/status", requireUser, async (c) => {  const [s] = awa
     status: part ? "partner" : life ? "lifetime" : s?.status ?? "none",
     currentPeriodEnd: s?.currentPeriodEnd ?? null,
     active,
+    setupFeeRequired: !!process.env.STRIPE_PRICE_SETUP_FEE && !c.get("isAdmin"),
+    setupFeePaid: await hasSetupFee(c.get("user").id),
   });
 });
 
@@ -821,7 +855,11 @@ keystone.post("/api/stripe/webhook", async (c) => {
         }
       }
     } else if (s.mode === "payment" && buyerId) {
-      if (kind === "partner") {
+      if (kind === "setup_fee") {
+        // One-time setup fee: record it only. Never lifetime access, never an
+        // affiliate sale (100% to the owner) — the commission block below is skipped.
+        await db.insert(setupFees).values({ userId: buyerId, stripeSessionId: s.id, amountCents: s.amount_total ?? 0 }).onConflictDoNothing();
+      } else if (kind === "partner") {
         // Legacy one-time Partner purchase.
         await db.insert(partnerAccess).values({ userId: buyerId, stripeCustomerId: cust }).onConflictDoNothing();
         const [existingAff] = await db.select({ id: affiliates.id }).from(affiliates).where(eq(affiliates.userId, buyerId));
@@ -839,7 +877,7 @@ keystone.post("/api/stripe/webhook", async (c) => {
     //   house affiliate a royalty at the owner's 50% rate on the same sale.
     // - A sale with no referrer (or a self-referral) pays the owner's house affiliate
     //   the full amount instead (first month on subscriptions; full price on one-time buys).
-    if (buyerId) {
+    if (buyerId && kind !== "setup_fee") {
       const affCode = (s.metadata as any)?.affCode;
       let aff: typeof affiliates.$inferSelect | undefined;
       if (affCode) {
@@ -883,14 +921,15 @@ keystone.post("/api/stripe/webhook", async (c) => {
   ) {
     const sub = event.data.object as Stripe.Subscription;
     await syncSubscription(sub);
-    // Free trial started: pay the owner's house affiliate a flat bounty for the trial.
+    // Trial started: record the trial marker (kind "trial") so the first real charge
+    // can pay the conversion commission. No bounty — the $5 setup fee replaced it.
     if (event.type === "customer.subscription.created" && sub.status === "trialing") {
       const trialBuyerId = (sub.metadata as any)?.userId as string | undefined;
       const house = await houseAffiliate();
       if (house && trialBuyerId) {
         await db.insert(referrals).values({
           affiliateId: house.id, userId: trialBuyerId, kind: "trial",
-          amountCents: 0, commissionCents: TRIAL_BOUNTY_CENTS,
+          amountCents: 0, commissionCents: 0,
           stripeEventId: `trial:${sub.id}`,
         }).onConflictDoNothing();
       }

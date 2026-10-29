@@ -190,6 +190,15 @@ export const trialIps = sqliteTable("trial_ips", {
   createdAt: createdAt(),
 });
 
+/** One-time $5 setup fee payments (monthly signups only, once per account). */
+export const setupFees = sqliteTable("setup_fees", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  userId: text("user_id").notNull().unique(),
+  stripeSessionId: text("stripe_session_id").notNull().unique(),
+  amountCents: integer("amount_cents").notNull(),
+  createdAt: createdAt(),
+});
+
 /** Blog posts synced from the BabyLoveGrowth API. Upserted idempotently by slug. */
 export const blgPosts = sqliteTable("blg_posts", {  id: integer("id").primaryKey({ autoIncrement: true }),
   /** BLG article id */
