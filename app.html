@@ -117,7 +117,6 @@ a{color:var(--volt2)}
 </style></head><body>
 <nav class="side" id="side"></nav><main id="main"></main>
 <nav id="mnav"><button data-v="home" onclick="goHome()"><span>🏠</span>Home</button><button data-v="chat" onclick="setView('chat')"><span>💬</span>Chat</button><button data-v="aff" onclick="setView('aff')"><span>💸</span>Affiliates</button><button data-v="voice" onclick="openVoicePanel()"><span>🎙️</span>Voice</button><button data-v="setup" onclick="openSettings()"><span>⚙️</span>Setup</button></nav>
-<div id="presence" style="position:fixed;bottom:18px;right:18px;z-index:100;display:none;align-items:center;gap:10px;background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:8px 18px 8px 8px;box-shadow:0 4px 24px rgba(0,0,0,.4);cursor:move;touch-action:none;user-select:none"><div id="presenceAvatar" style="width:36px;height:36px;border-radius:50%;overflow:hidden;flex:none"><svg width="36" height="36" viewBox="0 0 48 48"><rect width="48" height="48" rx="12" fill="#14191d"/><path d="M10 33 L24 11 L38 33" stroke="#2dd4bf" stroke-width="6.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/><circle cx="24" cy="36" r="3.2" fill="#2dd4bf"/></svg></div><div><div id="presenceName" style="font-weight:700;font-size:14px">Assistant</div><div id="presenceStatus" style="font-size:12px;color:var(--stone)">Ready</div></div><div id="presenceDot" style="width:10px;height:10px;border-radius:50%;background:#22c55e"></div></div>
 <script>
 const $=s=>document.querySelector(s);
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -209,7 +208,7 @@ async function maybeRitual(){
     if(localStorage.getItem('aiu_ritualDay')===today) return;
     localStorage.setItem('aiu_ritualDay',today);
     const r=await api('/api/assistant/ritual',{date:today,hour:new Date().getHours()});
-    if(r.ok&&r.data&&r.data.text){if(!chatId&&!msgs.length){msgs.push({role:'assistant',content:r.data.text});if(view=='chat')render()}}
+    if(r.ok&&r.data&&r.data.text){if(!chatId&&!msgs.length){msgs.push({role:'assistant',content:r.data.text});if(view=='chat')render();if(ASSISTANT_PERSONALITY.autoSpeak!==false)autoSpeakReply(r.data.text)}}
     else{try{localStorage.removeItem('aiu_ritualDay')}catch(e){}}
   }catch(e){try{localStorage.removeItem('aiu_ritualDay')}catch(_){}}
 }
@@ -303,6 +302,7 @@ async function sendChat(prefill){
     if(wc)wc.innerHTML=`<span style="color:var(--stone);font-size:13px">\u2705 Done${stepCount?` · ${stepCount} step${stepCount>1?'s':''}`:''}</span>`;
     msgs.push({role:'assistant',content:reply});
     loadConvos();
+    if(ASSISTANT_PERSONALITY.autoSpeak!==false)autoSpeakReply(reply);
   }
   render();
   const l2=document.getElementById('chatlog'); if(l2)l2.scrollTop=l2.scrollHeight;
@@ -568,6 +568,8 @@ function openSettings(){
           <select id="pElVoice" style="display:none;max-width:220px"><option value="">Loading voices…</option></select>
           <button class="btn ghost" onclick="previewVoice()">\uD83D\uDD0A Preview voice</button>
         </div>
+        <label style="display:flex;gap:8px;align-items:center;font-size:14px;color:var(--txt);margin-top:10px"><input type="checkbox" id="pAutoSpeak" style="width:auto"> Assistant talks automatically — speak replies aloud</label>
+        <p class="sub" style="font-size:12px">On by default. Turn it off here and replies stay silent until you tap the speaker button on a message.</p>
         <p class="sub" style="font-size:12px">Want it to sound like <b>you</b>? <a href="#" onclick="showCloneBox();return false" style="color:var(--lime)">Upload your own voice below</a> and we'll clone it.</p>
         <div id="cloneBox" style="display:none;border:1px dashed var(--line);border-radius:10px;padding:12px">
           <div class="sub" style="margin-bottom:8px"><b>Clone a voice</b> — upload 1–3 clear audio clips (30+ seconds each, no background noise). Use a voice you have the right to clone.</div>
@@ -651,9 +653,9 @@ function render(){
 
 /* ---------- Assistant naming + presence ---------- */
 let ASSISTANT_NAME='Assistant';
-let ASSISTANT_PERSONALITY={personality:'',character:'',filter:'clean',hasAvatar:false,voiceProvider:'openai',voice:'alloy',ritualEnabled:false,ritualModules:[],ritualSign:'',profile:{firstName:'',lastName:'',address:'',city:'',state:'',zip:'',dob:'',sex:''}};
-async function loadAssistantName(){try{const r=await api('/api/settings');if(r.ok){if(r.data.assistantName){ASSISTANT_NAME=r.data.assistantName}ASSISTANT_PERSONALITY={personality:r.data.personality||'',character:r.data.character||'',filter:r.data.filter||'clean',hasAvatar:!!r.data.hasAvatar,voiceProvider:r.data.voiceProvider||'openai',voice:r.data.voice||'alloy',ritualEnabled:!!r.data.ritualEnabled,ritualModules:r.data.ritualModules||[],ritualSign:r.data.ritualSign||'',profile:r.data.profile||{firstName:'',lastName:'',address:'',city:'',state:'',zip:'',dob:'',sex:''}};updatePresence();fillPersonality()}}catch(e){}}
-function fillPersonality(){const n=document.getElementById('pName');if(!n)return;n.value=ASSISTANT_NAME=='Assistant'?'':ASSISTANT_NAME;const pp=document.getElementById('pPersonality');if(pp)pp.value=ASSISTANT_PERSONALITY.personality;const pf=document.getElementById('pFilter');if(pf)pf.value=ASSISTANT_PERSONALITY.filter;const pv=document.getElementById('pVoiceProvider');if(pv)pv.value=ASSISTANT_PERSONALITY.voiceProvider;const pvv=document.getElementById('pVoice');if(pvv)pvv.value=ASSISTANT_PERSONALITY.voice;const ro=document.getElementById('pRitualOn');if(ro)ro.checked=!!ASSISTANT_PERSONALITY.ritualEnabled;document.querySelectorAll('.pRitualMod').forEach(cb=>{cb.checked=(ASSISTANT_PERSONALITY.ritualModules||[]).includes(cb.value)});const rs=document.getElementById('pRitualSign');if(rs)rs.value=ASSISTANT_PERSONALITY.ritualSign||'';const P=ASSISTANT_PERSONALITY.profile||{};const setV=(id,v)=>{const el=document.getElementById(id);if(el)el.value=v||''};setV('pfFirst',P.firstName);setV('pfLast',P.lastName);setV('pfAddress',P.address);setV('pfCity',P.city);setV('pfState',P.state);setV('pfZip',P.zip);setV('pfDob',P.dob);setV('pfSex',P.sex);voiceProviderChanged();const av=document.getElementById('avatarPrev');if(av){av.style.display=ASSISTANT_PERSONALITY.hasAvatar?'':'none';if(ASSISTANT_PERSONALITY.hasAvatar)av.src='/api/settings/avatar/img?'+Date.now()}}
+let ASSISTANT_PERSONALITY={personality:'',character:'',filter:'clean',hasAvatar:false,voiceProvider:'openai',voice:'alloy',autoSpeak:true,ritualEnabled:false,ritualModules:[],ritualSign:'',profile:{firstName:'',lastName:'',address:'',city:'',state:'',zip:'',dob:'',sex:''}};
+async function loadAssistantName(){try{const r=await api('/api/settings');if(r.ok){if(r.data.assistantName){ASSISTANT_NAME=r.data.assistantName}ASSISTANT_PERSONALITY={personality:r.data.personality||'',character:r.data.character||'',filter:r.data.filter||'clean',hasAvatar:!!r.data.hasAvatar,voiceProvider:r.data.voiceProvider||'openai',voice:r.data.voice||'alloy',ritualEnabled:!!r.data.ritualEnabled,autoSpeak:r.data.autoSpeak!==false,ritualModules:r.data.ritualModules||[],ritualSign:r.data.ritualSign||'',profile:r.data.profile||{firstName:'',lastName:'',address:'',city:'',state:'',zip:'',dob:'',sex:''}};updatePresence();fillPersonality()}}catch(e){}}
+function fillPersonality(){const n=document.getElementById('pName');if(!n)return;n.value=ASSISTANT_NAME=='Assistant'?'':ASSISTANT_NAME;const pp=document.getElementById('pPersonality');if(pp)pp.value=ASSISTANT_PERSONALITY.personality;const pf=document.getElementById('pFilter');if(pf)pf.value=ASSISTANT_PERSONALITY.filter;const pv=document.getElementById('pVoiceProvider');if(pv)pv.value=ASSISTANT_PERSONALITY.voiceProvider;const pvv=document.getElementById('pVoice');if(pvv)pvv.value=ASSISTANT_PERSONALITY.voice;const ro=document.getElementById('pRitualOn');if(ro)ro.checked=!!ASSISTANT_PERSONALITY.ritualEnabled;document.querySelectorAll('.pRitualMod').forEach(cb=>{cb.checked=(ASSISTANT_PERSONALITY.ritualModules||[]).includes(cb.value)});const rs=document.getElementById('pRitualSign');if(rs)rs.value=ASSISTANT_PERSONALITY.ritualSign||'';const ap=document.getElementById('pAutoSpeak');if(ap)ap.checked=ASSISTANT_PERSONALITY.autoSpeak!==false;const P=ASSISTANT_PERSONALITY.profile||{};const setV=(id,v)=>{const el=document.getElementById(id);if(el)el.value=v||''};setV('pfFirst',P.firstName);setV('pfLast',P.lastName);setV('pfAddress',P.address);setV('pfCity',P.city);setV('pfState',P.state);setV('pfZip',P.zip);setV('pfDob',P.dob);setV('pfSex',P.sex);voiceProviderChanged();const av=document.getElementById('avatarPrev');if(av){av.style.display=ASSISTANT_PERSONALITY.hasAvatar?'':'none';if(ASSISTANT_PERSONALITY.hasAvatar)av.src='/api/settings/avatar/img?'+Date.now()}}
 async function voiceProviderChanged(){
   const p=document.getElementById('pVoiceProvider').value;
   document.getElementById('pVoice').style.display=p=='openai'?'':'none';
@@ -705,7 +707,7 @@ async function cloneVoice(){
 }
 /* ---------- Chat voice panel: pick a voice or clone your own ---------- */
 function settingsPayload(over){
-  return Object.assign({assistantName:ASSISTANT_NAME||'Assistant',personality:ASSISTANT_PERSONALITY.personality||'',character:'',filter:ASSISTANT_PERSONALITY.filter||'clean',voiceProvider:ASSISTANT_PERSONALITY.voiceProvider||'openai',voice:ASSISTANT_PERSONALITY.voice||'alloy',ritualEnabled:!!ASSISTANT_PERSONALITY.ritualEnabled,ritualModules:ASSISTANT_PERSONALITY.ritualModules||[],ritualSign:ASSISTANT_PERSONALITY.ritualSign||'',profile:ASSISTANT_PERSONALITY.profile||{}},over||{});
+  return Object.assign({assistantName:ASSISTANT_NAME||'Assistant',personality:ASSISTANT_PERSONALITY.personality||'',character:'',filter:ASSISTANT_PERSONALITY.filter||'clean',voiceProvider:ASSISTANT_PERSONALITY.voiceProvider||'openai',voice:ASSISTANT_PERSONALITY.voice||'alloy',ritualEnabled:!!ASSISTANT_PERSONALITY.ritualEnabled,ritualModules:ASSISTANT_PERSONALITY.ritualModules||[],ritualSign:ASSISTANT_PERSONALITY.ritualSign||'',autoSpeak:ASSISTANT_PERSONALITY.autoSpeak!==false,profile:ASSISTANT_PERSONALITY.profile||{}},over||{});
 }
 function openVoicePanel(){
   let bg=document.getElementById('voiceModal');
@@ -797,8 +799,8 @@ async function savePersonality(){
   const mods=[...document.querySelectorAll('.pRitualMod')].filter(cb=>cb.checked).map(cb=>cb.value);
   const gv=id=>(document.getElementById(id)||{}).value||'';
   const profile={firstName:gv('pfFirst'),lastName:gv('pfLast'),address:gv('pfAddress'),city:gv('pfCity'),state:gv('pfState'),zip:gv('pfZip'),dob:gv('pfDob'),sex:gv('pfSex')};
-  const r=await api('/api/settings',{assistantName:name.trim()||'Assistant',personality:(document.getElementById('pPersonality')||{}).value||'',character:'',filter:(document.getElementById('pFilter')||{}).value||'clean',voiceProvider:vp,voice:v,ritualEnabled:!!(document.getElementById('pRitualOn')||{}).checked,ritualModules:mods,ritualSign:(document.getElementById('pRitualSign')||{}).value||'',profile});
-  if(r.ok){ASSISTANT_NAME=r.data.assistantName;ASSISTANT_PERSONALITY={personality:r.data.personality,character:r.data.character,filter:r.data.filter,hasAvatar:ASSISTANT_PERSONALITY.hasAvatar,voiceProvider:r.data.voiceProvider||'openai',voice:r.data.voice||'alloy',ritualEnabled:!!r.data.ritualEnabled,ritualModules:r.data.ritualModules||[],ritualSign:r.data.ritualSign||'',profile:r.data.profile||profile};updatePresence();render();toast('Personality saved — '+ASSISTANT_NAME+' is ready.')}
+  const r=await api('/api/settings',{assistantName:name.trim()||'Assistant',personality:(document.getElementById('pPersonality')||{}).value||'',character:'',filter:(document.getElementById('pFilter')||{}).value||'clean',voiceProvider:vp,voice:v,ritualEnabled:!!(document.getElementById('pRitualOn')||{}).checked,ritualModules:mods,ritualSign:(document.getElementById('pRitualSign')||{}).value||'',autoSpeak:!!(document.getElementById('pAutoSpeak')||{}).checked,profile});
+  if(r.ok){ASSISTANT_NAME=r.data.assistantName;ASSISTANT_PERSONALITY={personality:r.data.personality,character:r.data.character,filter:r.data.filter,hasAvatar:ASSISTANT_PERSONALITY.hasAvatar,voiceProvider:r.data.voiceProvider||'openai',voice:r.data.voice||'alloy',ritualEnabled:!!r.data.ritualEnabled,autoSpeak:r.data.autoSpeak!==false,ritualModules:r.data.ritualModules||[],ritualSign:r.data.ritualSign||'',profile:r.data.profile||profile};updatePresence();render();toast('Personality saved — '+ASSISTANT_NAME+' is ready.')}
   else toast(r.data.error||'Could not save.')
 }
 function speakMsg(i,btn){
@@ -819,8 +821,15 @@ async function speakText(text,btn){
     if(btn)btn.textContent='⏸';
     const done=()=>{speakingAudio=null;document.querySelectorAll('#chatlog button[title="Listen"]').forEach(b=>b.textContent='🔊');const pv=document.querySelector('[onclick="previewVoice()"]');if(pv)pv.innerHTML='🔊 Preview voice';URL.revokeObjectURL(url)};
     speakingAudio.onended=done;speakingAudio.onerror=done;
-    speakingAudio.play();
+    const pp=speakingAudio.play();if(pp&&pp.catch)pp.catch(()=>{speakingAudio=null});
   }catch(e){toast('Voice failed.');if(btn)btn.textContent='🔊'}
+}
+function autoSpeakReply(text){
+  if(ASSISTANT_PERSONALITY.autoSpeak===false)return;
+  const clean=stripOptions(text||'');
+  if(!clean)return;
+  if(speakingAudio){try{speakingAudio.pause()}catch(_){}speakingAudio=null}
+  speakText(clean);
 }
 async function previewVoice(){
   const vp=document.getElementById('pVoiceProvider').value;
@@ -834,48 +843,10 @@ async function previewVoice(){
 async function uploadAvatar(){const f=document.getElementById('avatarFile').files[0];if(!f){toast('Choose an image first.');return}if(f.size>2*1024*1024){toast('Image must be under 2MB.');return}const fd=new FormData();fd.append('avatar',f);toast('Uploading...');const r=await fetch('/api/settings/avatar',{method:'POST',body:fd,credentials:'include'});const j=await r.json().catch(()=>({}));if(r.ok){ASSISTANT_PERSONALITY.hasAvatar=true;updatePresence();fillPersonality();toast('Avatar updated!')}else toast(j.error||'Upload failed.')}
 async function removeAvatar(){const r=await api('/api/settings/avatar',null,'DELETE');if(r.ok){ASSISTANT_PERSONALITY.hasAvatar=false;updatePresence();fillPersonality();toast('Avatar removed.')}}
 function updatePresence(){
-  const p=document.getElementById('presence');if(!p)return;
-  p.style.display=signedIn?'flex':'none';
-  document.getElementById('presenceName').textContent=ASSISTANT_NAME;
-  const av=document.getElementById('presenceAvatar');
-  if(av){av.innerHTML=ASSISTANT_PERSONALITY.hasAvatar?`<img src="/api/settings/avatar/img?${Date.now()}" style="width:36px;height:36px;border-radius:50%;object-fit:cover">`:`<svg width="36" height="36" viewBox="0 0 48 48"><rect width="48" height="48" rx="12" fill="#14191d"/><path d="M10 33 L24 11 L38 33" stroke="#2dd4bf" stroke-width="6.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/><circle cx="24" cy="36" r="3.2" fill="#2dd4bf"/></svg>`}
-  restorePresencePos();
+  /* Presence bubble removed — the assistant talks instead of floating. */
 }
-/* Draggable presence bar — position saved per user */
-function restorePresencePos(){
-  try{
-    const pos=JSON.parse(localStorage.getItem('presencePos')||'null');
-    const p=document.getElementById('presence');if(!p||!pos)return;
-    p.style.left=pos.x+'px';p.style.top=pos.y+'px';p.style.transform='none';
-  }catch(e){}
-}
-(function(){
-  const p=document.getElementById('presence');if(!p)return;
-  let sx=0,sy=0,ox=0,oy=0,dragging=false;
-  p.addEventListener('pointerdown',e=>{
-    // Don't start drag on text selection or button taps
-    if(e.target.closest('button'))return;
-    dragging=true;sx=e.clientX;sy=e.clientY;
-    const r=p.getBoundingClientRect();ox=r.left;oy=r.top;
-    p.style.transform='none';p.style.left=ox+'px';p.style.top=oy+'px';
-    p.setPointerCapture(e.pointerId);
-  });
-  p.addEventListener('pointermove',e=>{
-    if(!dragging)return;
-    const nx=Math.max(0,Math.min(window.innerWidth-p.offsetWidth,ox+e.clientX-sx));
-    const ny=Math.max(0,Math.min(window.innerHeight-p.offsetHeight,oy+e.clientY-sy));
-    p.style.left=nx+'px';p.style.top=ny+'px';
-  });
-  const end=e=>{
-    if(!dragging)return;dragging=false;
-    try{localStorage.setItem('presencePos',JSON.stringify({x:parseInt(p.style.left),y:parseInt(p.style.top)}))}catch(_){}
-  };
-  p.addEventListener('pointerup',end);p.addEventListener('pointercancel',end);
-})();
 function setPresenceStatus(text,working){
-  const s=document.getElementById('presenceStatus'),d=document.getElementById('presenceDot');
-  if(s)s.textContent=text;
-  if(d){d.style.background=working?'#2dd4bf':'#22c55e';d.style.animation=working?'pulse 1s infinite':''}
+  /* Presence bubble removed — no status pill to update. */
 }
 async function renameAssistant(){
   const n=prompt('Name your personal assistant:',ASSISTANT_NAME);

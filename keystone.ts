@@ -407,6 +407,7 @@ keystone.get("/api/settings", requireUser, async (c) => {
   const ritualEnabled = (await getSetting(userId, "ritual_enabled")) === "1";
   const ritualModules = ((await getSetting(userId, "ritual_modules")) || "").split(",").filter(Boolean);
   const ritualSign = (await getSetting(userId, "ritual_sign")) || "";
+  const autoSpeak = (await getSetting(userId, "assistant_auto_speak")) !== "0";
   return c.json({
     assistantName: name || "Assistant",
     personality: personality || "",
@@ -418,6 +419,7 @@ keystone.get("/api/settings", requireUser, async (c) => {
     ritualEnabled,
     ritualModules,
     ritualSign,
+    autoSpeak,
     profile: await getProfile(userId),
   });
 });
@@ -451,6 +453,7 @@ keystone.post("/api/settings", requireUser, async (c) => {
   if (body.ritualEnabled !== undefined) await setSetting(userId, "ritual_enabled", body.ritualEnabled ? "1" : "0");
   if (Array.isArray(body.ritualModules)) await setSetting(userId, "ritual_modules", body.ritualModules.filter((m: string) => RITUAL_MODS.includes(m)).join(","));
   if (body.ritualSign !== undefined) await setSetting(userId, "ritual_sign", ZODIAC.includes(body.ritualSign) ? body.ritualSign : "");
+  if (body.autoSpeak !== undefined) await setSetting(userId, "assistant_auto_speak", body.autoSpeak ? "1" : "0");
   // Customer profile (optional object — only provided fields are updated)
   const profile = body.profile !== undefined ? await setProfile(userId, body.profile) : await getProfile(userId);
   return c.json({
@@ -458,6 +461,7 @@ keystone.post("/api/settings", requireUser, async (c) => {
     ritualEnabled: (await getSetting(userId, "ritual_enabled")) === "1",
     ritualModules: ((await getSetting(userId, "ritual_modules")) || "").split(",").filter(Boolean),
     ritualSign: (await getSetting(userId, "ritual_sign")) || "",
+    autoSpeak: (await getSetting(userId, "assistant_auto_speak")) !== "0",
     profile,
   });
 });
