@@ -167,7 +167,7 @@ async function eliteCount(kind: string): Promise<number> {
 /** Owner house affiliate: the owner's own affiliate account. Sales and trials that no
  * other affiliate earned fall to it, so the owner gets paid on every user. */
 /** Unreferred sales pay the owner the full amount charged — the plan's first month
- * on subscriptions ($25 Basic / $50 Pro / $75 Pro+), the full price on one-time
+ * on subscriptions ($25 Silver / $50 Gold / $75 Platinum), the full price on one-time
  * buys (Lifetime / Partner). The owner matching the pricing was his explicit call. */
 function houseFlatFor(kindKey: string, amountCents: number): number {
   return amountCents;
@@ -1076,8 +1076,8 @@ keystone.get("/api/affiliates/me", requireUser, async (c) => {
 const clean = (v: unknown, max = 300) => (typeof v === "string" && v.trim() ? v.trim().slice(0, max) : null);
 
 /* ---------------- spokesperson videos (HeyGen) ---------------- */
-/** Monthly video allowance per plan. Owner is unlimited. Videos cost HeyGen credits, so caps protect margins. */
-const VIDEO_MONTHLY_LIMIT: Record<string, number> = { basic: 1, pro: 5, proplus: 10, lifetime: 15 };
+/** Monthly video allowance per plan. Owner is unlimited. Videos cost HeyGen credits, so caps protect margins. -1 = unlimited. */
+const VIDEO_MONTHLY_LIMIT: Record<string, number> = { basic: 10, pro: 50, proplus: -1, lifetime: 15 };
 async function videoQuota(userId: string, isAdmin: boolean): Promise<{ ok: boolean; error?: string; used?: number; limit?: number }> {
   if (isAdmin) return { ok: true };
   const [s] = await db.select().from(subscriptions).where(eq(subscriptions.userId, userId));
@@ -1089,6 +1089,7 @@ async function videoQuota(userId: string, isAdmin: boolean): Promise<{ ok: boole
   const [row] = await db.select({ n: sql<number>`count(*)` }).from(videoJobs)
     .where(and(eq(videoJobs.userId, userId), sql`${videoJobs.createdAt} >= ${monthStart}`));
   const used = row?.n ?? 0;
+  if (limit < 0) return { ok: true, used, limit }; // unlimited plan
   if (used >= limit) return { ok: false, used, limit, error: `Monthly video limit reached (${used}/${limit}). Resets on the 1st, or upgrade your plan.` };
   return { ok: true, used, limit };
 }
@@ -1131,8 +1132,8 @@ keystone.get("/api/videos/:id", requireUser, async (c) => {
 });
 
 /* ---------------- studio: AI images, voiceover, background removal ---------------- */
-/** Monthly studio allowance per plan (images + voiceovers + bg removals combined). Owner unlimited. */
-const STUDIO_MONTHLY_LIMIT: Record<string, number> = { basic: 5, pro: 30, proplus: 60, lifetime: 100 };
+/** Monthly studio allowance per plan (images + voiceovers + bg removals combined). Owner unlimited. -1 = unlimited. */
+const STUDIO_MONTHLY_LIMIT: Record<string, number> = { basic: 5, pro: 30, proplus: -1, lifetime: 100 };
 async function studioQuota(userId: string, isAdmin: boolean): Promise<{ ok: boolean; error?: string; used?: number; limit?: number }> {
   if (isAdmin) return { ok: true };
   const [s] = await db.select().from(subscriptions).where(eq(subscriptions.userId, userId));
@@ -1144,6 +1145,7 @@ async function studioQuota(userId: string, isAdmin: boolean): Promise<{ ok: bool
   const [row] = await db.select({ n: sql<number>`count(*)` }).from(mediaJobs)
     .where(and(eq(mediaJobs.userId, userId), sql`${mediaJobs.createdAt} >= ${monthStart}`));
   const used = row?.n ?? 0;
+  if (limit < 0) return { ok: true, used, limit }; // unlimited plan
   if (used >= limit) return { ok: false, used, limit, error: `Monthly studio limit reached (${used}/${limit}). Resets on the 1st, or upgrade your plan.` };
   return { ok: true, used, limit };
 }
@@ -1279,8 +1281,8 @@ keystone.get("/api/studio/file/:name", requireUser, async (c) => {
 /* ---------------- content clipper: upload → transcribe → highlights → clips ---------------- */
 import { CONTENT_DIR, extractClip, findHighlights, isVideoFile, mediaDuration, transcribe } from "./content";
 
-/** Monthly content-clipper allowance per plan. Clipping is expensive (Whisper + AI + FFmpeg), so Basic doesn't get it. */
-const CLIPPER_MONTHLY_LIMIT: Record<string, number> = { basic: 0, pro: 3, proplus: 10, lifetime: 15 };
+/** Monthly content-clipper allowance per plan. Clipping is expensive (Whisper + AI + FFmpeg), so Silver doesn't get it. -1 = unlimited. */
+const CLIPPER_MONTHLY_LIMIT: Record<string, number> = { basic: 0, pro: 3, proplus: -1, lifetime: 15 };
 async function clipperQuota(userId: string, isAdmin: boolean): Promise<{ ok: boolean; error?: string; used?: number; limit?: number }> {
   if (isAdmin) return { ok: true };
   const [s] = await db.select().from(subscriptions).where(eq(subscriptions.userId, userId));
@@ -1292,8 +1294,9 @@ async function clipperQuota(userId: string, isAdmin: boolean): Promise<{ ok: boo
   const [row] = await db.select({ n: sql<number>`count(*)` }).from(contentJobs)
     .where(and(eq(contentJobs.userId, userId), sql`${contentJobs.createdAt} >= ${monthStart}`));
   const used = row?.n ?? 0;
+  if (limit < 0) return { ok: true, used, limit }; // unlimited plan
   if (used >= limit) {
-    if (limit === 0) return { ok: false, used, limit, error: "Content clipping isn't included in the Basic plan. Upgrade to Pro to unlock it." };
+    if (limit === 0) return { ok: false, used, limit, error: "Content clipping isn't included in the Silver plan. Upgrade to Gold to unlock it." };
     return { ok: false, used, limit, error: `Monthly clipper limit reached (${used}/${limit}). Resets on the 1st, or upgrade your plan.` };
   }
   return { ok: true, used, limit };
@@ -1399,7 +1402,7 @@ keystone.get("/api/content/file/:name", requireUser, async (c) => {
 /* ---------------- funnels: AI-generated lead capture pages ---------------- */
 
 /** Daily lead-capture allowance per plan (funnel opt-ins). Lifetime = top tier. */
-const LEAD_DAILY_LIMIT: Record<string, number> = { basic: 5, pro: 50, proplus: 200, lifetime: 200 };
+const LEAD_DAILY_LIMIT: Record<string, number> = { basic: 5, pro: 50, proplus: -1, lifetime: 200 };
 
 const slugify = (s: string) =>
   s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60) || "funnel";
@@ -1710,7 +1713,8 @@ keystone.post("/api/funnels/:slug/leads", async (c) => {
   const dayStart = new Date(); dayStart.setHours(0, 0, 0, 0);
   const [cnt] = await db.select({ n: sql<number>`count(*)` }).from(funnelLeads)
     .where(and(eq(funnelLeads.userId, f.userId), sql`${funnelLeads.createdAt} >= ${dayStart.getTime()}`));
-  if ((cnt?.n ?? 0) >= (LEAD_DAILY_LIMIT[plan] ?? 10))
+  const leadLimit = LEAD_DAILY_LIMIT[plan] ?? 10;
+  if (leadLimit >= 0 && (cnt?.n ?? 0) >= leadLimit)
     return c.json({ error: "This funnel is not accepting new leads right now." }, 429);
 
   const b = await c.req.json().catch(() => ({}));
@@ -1908,7 +1912,7 @@ keystone.route("/api/admin", admin);
 
 /* ---------------- AI: all-in-one assistant + funnel generation (subscribers) ---------------- */
 
-const DAILY_LIMIT: Record<string, number> = { basic: 0, pro: 100, proplus: 300, lifetime: 300 };
+const DAILY_LIMIT: Record<string, number> = { basic: 0, pro: 100, proplus: -1, lifetime: 300 };
 const AI_MODEL = process.env.AI_MODEL ?? "claude-sonnet-5-5";
 const JSON_ONLY = "Return ONLY valid JSON, no markdown fences, no commentary. ";
 const NO_HYPE = "Do not promise rankings, guaranteed results, lower ad costs, or exclusivity. Keep claims honest and specific. ";
@@ -1920,12 +1924,13 @@ async function aiQuota(userId: string, isAdmin: boolean): Promise<{ ok: boolean;
   const [life] = await db.select().from(lifetimeAccess).where(eq(lifetimeAccess.userId, userId));
   const plan = life ? "lifetime" : s?.plan ?? "basic";
   const limit = DAILY_LIMIT[plan] ?? 20;
+  if (limit < 0) return { ok: true }; // unlimited plan
   const day = new Date().toISOString().slice(0, 10);
   const [u] = await db.select().from(aiUsage).where(and(eq(aiUsage.userId, userId), eq(aiUsage.day, day)));
   if ((u?.n ?? 0) >= limit) {
     // Record the upgrade signal for the owner's admin view.
     await db.insert(limitHits).values({ userId, plan }).catch(() => {});
-    if (limit === 0) return { ok: false, error: `The AI assistant isn't included in the Basic plan. Upgrade to Pro to unlock it.`, limitHit: true, plan, limit };
+    if (limit === 0) return { ok: false, error: `The AI assistant isn't included in the Silver plan. Upgrade to Gold to unlock it.`, limitHit: true, plan, limit };
     return { ok: false, error: `Daily AI limit reached (${limit}). It resets tomorrow, or upgrade your plan.`, limitHit: true, plan, limit };
   }
   await db.insert(aiUsage).values({ userId, day, n: 1 })

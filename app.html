@@ -859,9 +859,9 @@ async function renameAssistant(){
 
 /* ---------- Upgrade modal (fires on 402 or daily-limit hit) ---------- */
 const PLANS=[
-  {id:'basic',name:'Basic',price:'$25/mo',ai:'No AI assistant',video:'1 video/mo',studio:'5 studio/mo',lead:'5 leads/day'},
-  {id:'pro',name:'Pro',price:'$50/mo',ai:'100 AI requests/day',video:'5 videos/mo',studio:'30 studio/mo',lead:'50 leads/day'},
-  {id:'proplus',name:'Pro+',price:'$75/mo',ai:'300 AI requests/day',video:'10 videos/mo',studio:'60 studio/mo',lead:'200 leads/day'},
+  {id:'basic',name:'Silver',price:'$25/mo',ai:'No AI assistant',video:'10 videos/mo',studio:'5 studio/mo',lead:'5 leads/day'},
+  {id:'pro',name:'Gold',price:'$50/mo',ai:'100 AI requests/day',video:'50 videos/mo',studio:'30 studio/mo',lead:'50 leads/day'},
+  {id:'proplus',name:'Platinum',price:'$75/mo',ai:'Unlimited AI requests',video:'Unlimited videos',studio:'Unlimited studio',lead:'Unlimited leads'},
   {id:'lifetime',name:'Lifetime',price:'$1,999 once',ai:'300 AI requests/day, forever',video:'15 videos/mo',studio:'100 studio/mo',lead:'200 leads/day'},
 ];
 function showUpgrade(plan,reason){
