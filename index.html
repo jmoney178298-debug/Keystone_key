@@ -379,7 +379,7 @@ input:focus,textarea:focus,select:focus{outline:none;border-color:var(--accent);
 const BOOKING_URL="https://calendly.com/jmoney178298/30min";
 document.getElementById('bookbtn').href=BOOKING_URL;
 const $=s=>document.querySelector(s);
-const PLANS=[['basic','AIU Basic',25,'Browse the app · 1 video/mo · 5 studio/mo · 5 leads/day'],['pro','AIU Pro',50,'Full AI assistant · 100 AI requests/day · Priority support'],['proplus','AIU Pro+',75,'Everything in Pro · 300 AI requests/day · 1:1 setup call']];
+const PLANS=[['basic','AIU Basic',25,'<b>1 AI spokesperson video</b> per month · <b>5 studio generations</b> per month · <b>5 leads</b> per day · AI assistant not included'],['pro','AIU Pro',50,'<b>100 AI requests</b> per day · <b>5 AI spokesperson videos</b> per month · <b>30 studio generations</b> per month · <b>50 leads</b> per day · Full AI assistant'],['proplus','AIU Pro+',75,'<b>300 AI requests</b> per day · <b>10 AI spokesperson videos</b> per month · <b>60 studio generations</b> per month · <b>200 leads</b> per day · Everything in Pro · 1:1 setup call']];
 $('#grid').innerHTML=PLANS.map(p=>`<div class="price-card"><h3>${p[1]}</h3><div class="amt">$${p[2]} <span>/mo</span></div><div class="per">7-day trial · $5 setup fee · cancel anytime</div><ul class="feat"><li>${p[3].split(' · ').map(s=>s).join('</li><li>')}</li></ul><button class="btn btn-acc" style="width:100%" onclick="pick('${p[0]}')">Start trial</button></div>`).join('');
 let signup=false;
 function show(id){document.querySelectorAll('.sec-view').forEach(e=>e.classList.toggle('on',e.id==id));if(id=='account')acct();if(id){const el=document.getElementById(id);if(el)el.scrollIntoView({behavior:'smooth',block:'start'})}}

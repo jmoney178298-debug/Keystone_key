@@ -859,10 +859,10 @@ async function renameAssistant(){
 
 /* ---------- Upgrade modal (fires on 402 or daily-limit hit) ---------- */
 const PLANS=[
-  {id:'basic',name:'Basic',price:'$25/mo',ai:'No AI assistant',lead:'5 leads/day'},
-  {id:'pro',name:'Pro',price:'$50/mo',ai:'100 AI requests/day',lead:'50 leads/day'},
-  {id:'proplus',name:'Pro+',price:'$75/mo',ai:'300 AI requests/day',lead:'200 leads/day'},
-  {id:'lifetime',name:'Lifetime',price:'$1,999 once',ai:'300 AI requests/day, forever',lead:'200 leads/day'},
+  {id:'basic',name:'Basic',price:'$25/mo',ai:'No AI assistant',video:'1 video/mo',studio:'5 studio/mo',lead:'5 leads/day'},
+  {id:'pro',name:'Pro',price:'$50/mo',ai:'100 AI requests/day',video:'5 videos/mo',studio:'30 studio/mo',lead:'50 leads/day'},
+  {id:'proplus',name:'Pro+',price:'$75/mo',ai:'300 AI requests/day',video:'10 videos/mo',studio:'60 studio/mo',lead:'200 leads/day'},
+  {id:'lifetime',name:'Lifetime',price:'$1,999 once',ai:'300 AI requests/day, forever',video:'15 videos/mo',studio:'100 studio/mo',lead:'200 leads/day'},
 ];
 function showUpgrade(plan,reason){
   if(document.getElementById('upModal'))return;
@@ -881,7 +881,7 @@ function showUpgrade(plan,reason){
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
         <strong style="font-size:16px">${next.name}</strong><span style="color:#2dd4bf;font-weight:700">${next.price}</span>
       </div>
-      <div style="font-size:13px;color:#9AA3B5">${next.ai} · ${next.lead}</div>
+      <div style="font-size:13px;color:#9AA3B5">${next.ai} · ${next.video} · ${next.studio} · ${next.lead}</div>
       <button onclick="goBill()" style="margin-top:12px;width:100%;background:#2dd4bf;border:0;color:#04211d;border-radius:999px;padding:11px;font-weight:800;font-size:15px;cursor:pointer">Upgrade to ${next.name}</button>
     </div>
     <button onclick="goBill()" style="width:100%;background:none;border:1px solid rgba(255,255,255,.15);color:#e9edf0;border-radius:999px;padding:10px;font-weight:600;cursor:pointer">Compare all plans</button>
