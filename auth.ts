@@ -16,6 +16,16 @@ function authSecret() {
 
 const APP_URL = (process.env.APP_URL || "https://www.getaiu.online").replace(/\/$/, "");
 
+/** Every origin the app can be reached on. Better Auth rejects sign-in/sign-up
+ *  from any origin not listed here ("Invalid origin"), so this must include the
+ *  canonical domain, the root domain, and the Render URL — not just APP_URL. */
+const TRUSTED_ORIGINS = Array.from(new Set([
+  APP_URL,
+  "https://www.getaiu.online",
+  "https://getaiu.online",
+  "https://keystone-key.onrender.com",
+]));
+
 /** Password-reset email via Resend (same infra as lead notifications). */
 async function sendResetPasswordEmail(to: string, token: string) {
   const key = process.env.RESEND_API_KEY;
@@ -80,7 +90,7 @@ export const auth = betterAuth({
   database: sqlite,
   baseURL: process.env.APP_URL,
   secret: authSecret(),
-  trustedOrigins: process.env.APP_URL ? [process.env.APP_URL] : [],
+  trustedOrigins: TRUSTED_ORIGINS,
   advanced: { ipAddress: { ipAddressHeaders: ["x-forwarded-for"] } },
   emailAndPassword: {
     enabled: true,
