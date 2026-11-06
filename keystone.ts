@@ -1077,7 +1077,7 @@ const clean = (v: unknown, max = 300) => (typeof v === "string" && v.trim() ? v.
 
 /* ---------------- spokesperson videos (HeyGen) ---------------- */
 /** Monthly video allowance per plan. Owner is unlimited. Videos cost HeyGen credits, so caps protect margins. -1 = unlimited. */
-const VIDEO_MONTHLY_LIMIT: Record<string, number> = { basic: 10, pro: 50, proplus: -1, lifetime: 15 };
+const VIDEO_MONTHLY_LIMIT: Record<string, number> = { basic: 10, pro: 50, proplus: -1, lifetime: -1 };
 async function videoQuota(userId: string, isAdmin: boolean): Promise<{ ok: boolean; error?: string; used?: number; limit?: number }> {
   if (isAdmin) return { ok: true };
   const [s] = await db.select().from(subscriptions).where(eq(subscriptions.userId, userId));
@@ -1133,7 +1133,7 @@ keystone.get("/api/videos/:id", requireUser, async (c) => {
 
 /* ---------------- studio: AI images, voiceover, background removal ---------------- */
 /** Monthly studio allowance per plan (images + voiceovers + bg removals combined). Owner unlimited. -1 = unlimited. */
-const STUDIO_MONTHLY_LIMIT: Record<string, number> = { basic: 5, pro: 30, proplus: -1, lifetime: 100 };
+const STUDIO_MONTHLY_LIMIT: Record<string, number> = { basic: 5, pro: 30, proplus: -1, lifetime: -1 };
 async function studioQuota(userId: string, isAdmin: boolean): Promise<{ ok: boolean; error?: string; used?: number; limit?: number }> {
   if (isAdmin) return { ok: true };
   const [s] = await db.select().from(subscriptions).where(eq(subscriptions.userId, userId));
@@ -1282,7 +1282,7 @@ keystone.get("/api/studio/file/:name", requireUser, async (c) => {
 import { CONTENT_DIR, extractClip, findHighlights, isVideoFile, mediaDuration, transcribe } from "./content";
 
 /** Monthly content-clipper allowance per plan. Clipping is expensive (Whisper + AI + FFmpeg), so Silver doesn't get it. -1 = unlimited. */
-const CLIPPER_MONTHLY_LIMIT: Record<string, number> = { basic: 0, pro: 3, proplus: -1, lifetime: 15 };
+const CLIPPER_MONTHLY_LIMIT: Record<string, number> = { basic: 0, pro: 3, proplus: -1, lifetime: -1 };
 async function clipperQuota(userId: string, isAdmin: boolean): Promise<{ ok: boolean; error?: string; used?: number; limit?: number }> {
   if (isAdmin) return { ok: true };
   const [s] = await db.select().from(subscriptions).where(eq(subscriptions.userId, userId));
@@ -1402,7 +1402,7 @@ keystone.get("/api/content/file/:name", requireUser, async (c) => {
 /* ---------------- funnels: AI-generated lead capture pages ---------------- */
 
 /** Daily lead-capture allowance per plan (funnel opt-ins). Lifetime = top tier. */
-const LEAD_DAILY_LIMIT: Record<string, number> = { basic: 5, pro: 50, proplus: -1, lifetime: 200 };
+const LEAD_DAILY_LIMIT: Record<string, number> = { basic: 5, pro: 50, proplus: -1, lifetime: -1 };
 
 const slugify = (s: string) =>
   s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60) || "funnel";
@@ -1912,7 +1912,7 @@ keystone.route("/api/admin", admin);
 
 /* ---------------- AI: all-in-one assistant + funnel generation (subscribers) ---------------- */
 
-const DAILY_LIMIT: Record<string, number> = { basic: 0, pro: 100, proplus: -1, lifetime: 300 };
+const DAILY_LIMIT: Record<string, number> = { basic: 0, pro: 100, proplus: -1, lifetime: -1 };
 const AI_MODEL = process.env.AI_MODEL ?? "claude-sonnet-5-5";
 const JSON_ONLY = "Return ONLY valid JSON, no markdown fences, no commentary. ";
 const NO_HYPE = "Do not promise rankings, guaranteed results, lower ad costs, or exclusivity. Keep claims honest and specific. ";
