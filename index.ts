@@ -3,7 +3,7 @@ import { serve } from "@hono/node-server";
 import { eq } from "drizzle-orm";
 import fs from "node:fs";
 import { auth } from "./auth";
-import { db } from "./db";
+import { db, dbReady } from "./db";
 import { keystone } from "./keystone";
 import { lifetimeAccess, partnerAccess, subscriptions } from "./schema";
 
@@ -82,5 +82,7 @@ app.get("/sitemap.xml", async (c) => {
 app.get("/llms.txt", (c) => c.body(fs.readFileSync("llms.txt", "utf8"), 200, { "Content-Type": "text/plain", "Cache-Control": "public, max-age=86400" }));
 
 const port = Number(process.env.PORT ?? 3000);
+// Create the tables before accepting requests (Turso is async now).
+await dbReady;
 serve({ fetch: app.fetch, port, hostname: "0.0.0.0" });
 console.log(`Keystone listening on ${port}`);

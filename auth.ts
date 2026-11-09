@@ -1,9 +1,12 @@
 import { betterAuth } from "better-auth";
+import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { google, apple, facebook } from "better-auth/social-providers";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { dbPath, sqlite } from "./db";
+import { db } from "./db";
+import { dbPath } from "./db";
+import { account, session, user, verification } from "./schema";
 
 function authSecret() {
   if (process.env.BETTER_AUTH_SECRET) return process.env.BETTER_AUTH_SECRET;
@@ -87,7 +90,10 @@ export function enabledSocialProviders(): string[] {
 }
 
 export const auth = betterAuth({
-  database: sqlite,
+  database: drizzleAdapter(db, {
+    provider: "sqlite",
+    schema: { user, session, account, verification },
+  }),
   baseURL: process.env.APP_URL,
   secret: authSecret(),
   trustedOrigins: TRUSTED_ORIGINS,

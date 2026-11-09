@@ -9,9 +9,9 @@ import { getCookie, setCookie } from "hono/cookie";
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import Stripe from "stripe";
 import crypto from "node:crypto";
-import { db, sqlite } from "./db";
+import { db } from "./db";
 import { auth, enabledSocialProviders } from "./auth";
-import { affiliates, aiSubscriptions, aiUsage, assistantConversations, assistantMessages, blgPosts, contentJobs, funnels, funnelLeads, ideas, integrationKeys, leads, lifetimeAccess, limitHits, mediaJobs, partnerAccess, prospects, referrals, setupFees, stripeEvents, subscriptions, trialIps, userSettings, videoJobs } from "./schema";
+import { affiliates, aiSubscriptions, aiUsage, assistantConversations, assistantMessages, blgPosts, contentJobs, funnels, funnelLeads, ideas, integrationKeys, leads, lifetimeAccess, limitHits, mediaJobs, partnerAccess, prospects, referrals, setupFees, stripeEvents, subscriptions, trialIps, user, userSettings, videoJobs } from "./schema";
 import { blgConfigured, blgGetArticle, blgListArticles, blgSyncArticles, blgUpsertArticle } from "./blg";
 import { heygenConfigured, heygenGenerateVideo, heygenVideoStatus, heygenListAvatars } from "./heygen";
 import fs from "node:fs";
@@ -1679,7 +1679,7 @@ async function notifyNewLead(ownerId: string, lead: { funnel: string; name: stri
   try {
     const key = process.env.RESEND_API_KEY;
     if (!key) return;
-    const row = sqlite.prepare("SELECT email FROM user WHERE id = ?").get(ownerId) as { email?: string } | undefined;
+    const [row] = await db.select({ email: user.email }).from(user).where(eq(user.id, ownerId));
     if (!row?.email) return;
     const from = process.env.NOTIFY_FROM || "AIU <notifications@getaiu.online>";
     await fetch("https://api.resend.com/emails", {
@@ -1881,7 +1881,7 @@ admin.get("/limit-hits", async (c) =>
 
 /** Admin: login/IP worksheet — every session with user, IP, device, plan, and trial status. */
 admin.get("/sessions", async (c) => {
-  const rows = sqlite.prepare(`
+  const result = await db.execute(sql`
     SELECT s.id, s.ipAddress, s.userAgent, s.createdAt, s.expiresAt,
            u.email, u.name,
            sub.plan, sub.status as subStatus,
@@ -1891,7 +1891,8 @@ admin.get("/sessions", async (c) => {
     LEFT JOIN subscriptions sub ON sub.user_id = s.userId
     LEFT JOIN trial_ips t ON t.ip = s.ipAddress
     ORDER BY s.createdAt DESC LIMIT 500
-  `).all() as any[];
+  `);
+  const rows = result.rows as any[];
   return c.json(rows.map(r => ({
     id: r.id, ip: r.ipAddress || "—", userAgent: r.userAgent || "",
     email: r.email, name: r.name,

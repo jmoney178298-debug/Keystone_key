@@ -1,18 +1,27 @@
-import Database from "better-sqlite3";
-import { drizzle } from "drizzle-orm/better-sqlite3";
+import { createClient, type Client } from "@libsql/client";
+import { drizzle, type LibSQLDatabase } from "drizzle-orm/libsql";
 import fs from "node:fs";
 import path from "node:path";
 import * as schema from "./schema";
 
+const TURSO_URL = process.env.TURSO_DATABASE_URL;
+const TURSO_TOKEN = process.env.TURSO_AUTH_TOKEN;
+
+// Local file path, used as the libsql fallback for local dev and as the
+// location of the auth-secret file (see auth.ts). On Render the Turso
+// vars above are set, so this file is never opened there.
 export const dbPath = (process.env.DATABASE_URL ?? "file:./data/keystone.db").replace(/^file:/, "");
 fs.mkdirSync(path.dirname(dbPath), { recursive: true });
 
-export const sqlite = new Database(dbPath);
-sqlite.pragma("journal_mode = WAL");
-sqlite.pragma("foreign_keys = ON");
+const url = TURSO_URL ?? `file:${dbPath}`;
+export const client: Client = createClient({
+  url,
+  ...(TURSO_TOKEN ? { authToken: TURSO_TOKEN } : {}),
+});
 
-// Tables are created on first boot, so there is no separate migration step.
-sqlite.exec(`
+export const db: LibSQLDatabase<typeof schema> = drizzle(client, { schema });
+
+const CREATE_TABLES = `
 CREATE TABLE IF NOT EXISTS user (id text PRIMARY KEY, name text NOT NULL, email text NOT NULL UNIQUE, emailVerified integer NOT NULL DEFAULT 0, image text, createdAt date NOT NULL, updatedAt date NOT NULL);
 CREATE TABLE IF NOT EXISTS session (id text PRIMARY KEY, expiresAt date NOT NULL, token text NOT NULL UNIQUE, createdAt date NOT NULL, updatedAt date NOT NULL, ipAddress text, userAgent text, userId text NOT NULL REFERENCES user(id) ON DELETE CASCADE);
 CREATE TABLE IF NOT EXISTS account (id text PRIMARY KEY, accountId text NOT NULL, providerId text NOT NULL, userId text NOT NULL REFERENCES user(id) ON DELETE CASCADE, accessToken text, refreshToken text, idToken text, accessTokenExpiresAt date, refreshTokenExpiresAt date, scope text, password text, createdAt date NOT NULL, updatedAt date NOT NULL);
@@ -41,18 +50,29 @@ CREATE TABLE IF NOT EXISTS content_jobs (id integer PRIMARY KEY AUTOINCREMENT, u
 CREATE TABLE IF NOT EXISTS user_settings (user_id text NOT NULL, key text NOT NULL, value text NOT NULL, created_at integer NOT NULL, PRIMARY KEY (user_id, key));
 CREATE TABLE IF NOT EXISTS integration_keys (service text PRIMARY KEY, api_key_enc text NOT NULL, iv text NOT NULL, updated_at integer NOT NULL);
 CREATE TABLE IF NOT EXISTS ai_subscriptions (id integer PRIMARY KEY AUTOINCREMENT, user_id text NOT NULL, service_name text NOT NULL, plan_name text, cost_cents integer NOT NULL DEFAULT 0, currency text NOT NULL DEFAULT 'USD', billing_cycle text NOT NULL DEFAULT 'monthly', renewal_date integer, trial_ends integer, cancel_url text, notes text, status text NOT NULL DEFAULT 'active', created_at integer NOT NULL);
-`);
+`;
 
 // Column upgrades for databases created before these columns existed.
-for (const stmt of [
+const ALTERS = [
   "ALTER TABLE affiliates ADD COLUMN elite integer NOT NULL DEFAULT 0",
   "ALTER TABLE affiliates ADD COLUMN elite_kind text",
   "ALTER TABLE partner_access ADD COLUMN stripe_subscription_id text",
   "ALTER TABLE funnels ADD COLUMN views integer NOT NULL DEFAULT 0",
   "ALTER TABLE affiliates ADD COLUMN phone text",
   "ALTER TABLE affiliates ADD COLUMN address text",
-]) {
-  try { sqlite.exec(stmt); } catch { /* column already exists */ }
+];
+
+async function initDb(): Promise<void> {
+  // Tables are created on first boot, so there is no separate migration step.
+  await client.executeMultiple(CREATE_TABLES);
+  for (const stmt of ALTERS) {
+    try { await client.execute(stmt); } catch { /* column already exists */ }
+  }
 }
 
-export const db = drizzle(sqlite, { schema });
+// Awaited in index.ts before the server starts listening, so no request
+// can run before the tables exist.
+export const dbReady: Promise<void> = initDb().catch((e) => {
+  console.error("[db] init failed", e);
+  throw e;
+});
