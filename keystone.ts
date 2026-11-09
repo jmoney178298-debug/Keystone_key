@@ -2089,7 +2089,64 @@ const ASSISTANT_TOOLS: any[] = [
   { name: "update_profile", description: "Save structured profile details the user gives you — first/last name, street address, city, state, ZIP, date of birth (YYYY-MM-DD), sex (male/female/other) — into their profile, so you always address them correctly and can personalize things like their horoscope. Call whenever the user provides any of these in conversation. Only include the fields they actually gave you.", input_schema: { type: "object", properties: { firstName: { type: "string" }, lastName: { type: "string" }, address: { type: "string" }, city: { type: "string" }, state: { type: "string" }, zip: { type: "string" }, dob: { type: "string", description: "Date of birth as YYYY-MM-DD." }, sex: { type: "string", enum: ["male", "female", "other"] } } } },
   { name: "ask_ai", description: "Ask a different connected AI provider a question — use when the user wants another model's take, or to compare answers across providers. The provider must be connected in AI Tools → Integrations.", input_schema: { type: "object", properties: { provider: { type: "string", enum: ["gemini", "grok", "deepseek", "mistral", "groq", "together"], description: "Which AI to ask" }, prompt: { type: "string", description: "The question or prompt" }, system: { type: "string", description: "Optional system instruction" } }, required: ["provider", "prompt"] } },
   { name: "run_ai_model", description: "Run any public Replicate AI model — Flux/SDXL image generation, video models, upscaling, music, and thousands more. Model is 'owner/name', e.g. 'black-forest-labs/flux-schnell'. Input is the model's parameters object, e.g. {prompt: 'a sunset over Denver'} for image models. Returns the model's output (usually file URLs). The Replicate token must be connected in AI Tools → Integrations.", input_schema: { type: "object", properties: { model: { type: "string", description: "Model as 'owner/name'" }, input: { type: "object", description: "Model parameters, e.g. {prompt: 'a sunset over Denver'}" } }, required: ["model", "input"] } },
+  { name: "web_search", description: "Search the live web for current information — prices, news, docs, how-tos, anything that needs up-to-date facts. Returns an AI summary with cited sources via Perplexity (must be connected in AI Tools → Integrations). Use whenever the user asks about something current or outside the app.", input_schema: { type: "object", properties: { query: { type: "string", description: "The search query" } }, required: ["query"] } },
+  { name: "fetch_page", description: "Read a public web page by URL and return its readable text. Use to read docs, product pages, articles, or any public page the user links to. Cannot read pages that need JavaScript rendering or a login.", input_schema: { type: "object", properties: { url: { type: "string", description: "The full http(s) URL to read" } }, required: ["url"] } },
 ];
+
+/* ---------------- web browsing (Phase 1 of browser-driving) ----------------
+ * The app runs on Render's free tier, which cannot run a headless Chromium
+ * browser in-process, so full click/type/login driving goes through a remote
+ * browser service (Phase 2, Browserbase). What the app CAN do natively, right
+ * now, is real web browsing: live search (Perplexity when connected, free
+ * DuckDuckGo fallback) and reading any public page as text. These two tools
+ * are the foundation — the assistant can search the web and read pages. */
+
+/** Strip HTML to readable plain text. */
+function htmlToText(html: string): string {
+  return html
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<noscript[\s\S]*?<\/noscript>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#0?39;|&apos;/gi, "'")
+    .replace(/&#(\d+);/g, (_m, n) => { try { return String.fromCharCode(Number(n)); } catch { return " "; } })
+    .replace(/[ \t\r\n]+/g, " ")
+    .trim();
+}
+
+/** Search the live web via Perplexity (cited answers). No free keyless fallback
+ * is reliable — DuckDuckGo HTML blocks automated requests and its Instant
+ * Answer API returns nothing for general queries — so a missing Perplexity
+ * key returns a clear, actionable error instead of a broken fallback. */
+export async function webSearch(query: string): Promise<any> {
+  const { perplexitySearch } = await import("./integrations");
+  const res = await perplexitySearch(query);
+  return { source: "perplexity", answer: res.answer, citations: res.citations ?? [] };
+}
+
+/** Fetch a public URL and return its readable text. No JS rendering, no login — public pages only. */
+export async function fetchPageText(rawUrl: string): Promise<any> {
+  let url: string;
+  try { url = new URL(rawUrl).toString(); } catch { return { error: "That doesn't look like a valid URL." }; }
+  if (!/^https?:\/\//i.test(url)) return { error: "Only http(s) URLs can be fetched." };
+  const r = await fetch(url, {
+    headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36", Accept: "text/html,application/xhtml+xml" },
+    redirect: "follow",
+    signal: AbortSignal.timeout(20000),
+  });
+  if (!r.ok) return { error: `Could not fetch that page (HTTP ${r.status}).` };
+  const ct = (r.headers.get("content-type") || "").toLowerCase();
+  const bodyText = await r.text();
+  if (ct.includes("application/json")) return { url, contentType: ct, text: bodyText.slice(0, 8000) };
+  const plain = htmlToText(bodyText).slice(0, 12000);
+  if (!plain) return { url, error: "The page had no readable text (it may need JavaScript or a login)." };
+  return { url, text: plain };
+}
 
 /** Execute one assistant tool call. Always returns a JSON-able object (never throws). */
 async function runAssistantTool(name: string, input: any, userId: string, isAdmin = false): Promise<any> {
@@ -2323,6 +2380,18 @@ async function runAssistantTool(name: string, input: any, userId: string, isAdmi
         const article = await blgGetArticle(id);
         return { article };
       }
+      case "web_search": {
+        const query = clean(input?.query, 500);
+        if (!query) return { error: "Give me something to search for." };
+        try {
+          return await webSearch(query);
+        } catch (e: any) { return { error: e?.message || "Web search failed." }; }
+      }
+      case "fetch_page": {
+        const url = clean(input?.url, 2000);
+        if (!url) return { error: "Give me a URL to read." };
+        return await fetchPageText(url);
+      }
       default:
         return { error: `Unknown tool: ${name}` };
     }
@@ -2485,6 +2554,8 @@ const AGENT_TOOL_LABELS: Record<string, string> = {
   remember_preference: "Filing that away",
   ask_ai: "Asking another AI",
   run_ai_model: "Running AI model",
+  web_search: "Searching the web",
+  fetch_page: "Reading page",
   set_daily_ritual: "Setting up your ritual",
   update_profile: "Updating your profile",
 };
@@ -2506,6 +2577,7 @@ RULES:
 - DAILY RITUAL: Users can have a daily greeting ritual (inspirational quote, positive outlook, Bible verse, horoscope, tarot) delivered in their tone when they start a fresh chat. When a user asks to set one up, change its pieces, or turn it off, call set_daily_ritual. If they give their zodiac sign or birthday for the horoscope, file it with remember_preference too.
 - PROFILE: When a user tells you their name, birthday, address, or other profile details in conversation, save them with update_profile so every future conversation already knows them — and always address the user by their first name from their profile, never a username or email handle.
 - AI HUB: The app has an AI Tools hub with many providers beyond me — DeepSeek, Mistral, Groq, Together AI, Gemini, Grok, Perplexity (search), Replicate (thousands of models: Flux images, video, music, upscaling), ElevenLabs (voice), Leonardo (images), HeyGen (spokesperson video). When the user wants another model's answer, a comparison across models, or a capability I don't have natively (e.g. Flux image gen, video generation, music), use the ask_ai tool (pick a connected provider) or run_ai_model (any public Replicate model as 'owner/name' with its input object). If the provider isn't connected yet, say so plainly and point them to AI Tools → Integrations instead of guessing.
+- WEB: I can browse the live web. Use web_search for current facts, prices, news, docs, and anything outside the app — it returns cited answers when Perplexity is connected. Use fetch_page to read any public page the user links to (docs, product pages, articles). I cannot log into sites or click through JavaScript pages yet — that's coming next. Never present a fetched page as if I clicked through it; say what I read.
 - QUICK OPTIONS: When you ask the user to pick between 2-4 clear alternatives (never for open questions, never more than 4), end your message with a block exactly like this, on its own lines:
 [[OPTIONS]]
 First choice
