@@ -7,7 +7,7 @@
  *
  * Supported services:
  *   Built-in (env keys): openai, anthropic, leonardo, heygen
- *   Pluggable (keys stored here): elevenlabs, gemini, perplexity, grok
+ *   Pluggable (keys stored here): elevenlabs, gemini, perplexity, grok, deepseek, groq, replicate
  */
 import { createCipheriv, createDecipheriv, randomBytes, scryptSync } from "node:crypto";
 import { eq } from "drizzle-orm";
@@ -37,9 +37,7 @@ export const AI_SERVICES: AiService[] = [
   { id: "perplexity", name: "Perplexity", description: "AI search with cited sources — research assistant", tools: ["AI search"], keyHint: "perplexity.ai → Settings → API", keyPrefix: "pplx-", builtin: false, category: "Search" },
   { id: "grok", name: "xAI Grok", description: "Grok chat with real-time X/Twitter knowledge", tools: ["Chat"], keyHint: "console.x.ai → API keys", keyPrefix: "xai-", builtin: false, category: "Chat" },
   { id: "deepseek", name: "DeepSeek", description: "Ultra-cheap, powerful chat — great for bulk reasoning", tools: ["Chat"], keyHint: "platform.deepseek.com → API keys", keyPrefix: "sk-", builtin: false, category: "Chat" },
-  { id: "mistral", name: "Mistral AI", description: "Europe's frontier chat models", tools: ["Chat"], keyHint: "console.mistral.ai → API keys", builtin: false, category: "Chat" },
   { id: "groq", name: "Groq", description: "Blazing-fast Llama, Qwen & Mixtral inference", tools: ["Chat"], keyHint: "console.groq.com → API keys", keyPrefix: "gsk_", builtin: false, category: "Chat" },
-  { id: "together", name: "Together AI", description: "200+ open-source models on one API", tools: ["Chat"], keyHint: "api.together.ai → Settings → API keys", builtin: false, category: "Chat" },
   { id: "replicate", name: "Replicate", description: "Run thousands of AI models — Flux images, video, music, upscaling", tools: ["Images", "Video", "Audio", "Upscale"], keyHint: "replicate.com → Account → API tokens", keyPrefix: "r8_", builtin: false, category: "All-in-one" },
 ];
 
@@ -82,9 +80,7 @@ export async function getServiceKey(serviceId: string): Promise<string | null> {
     perplexity: ["PERPLEXITY_API_KEY"],
     grok: ["GROK_API_KEY", "XAI_API_KEY"],
     deepseek: ["DEEPSEEK_API_KEY"],
-    mistral: ["MISTRAL_API_KEY"],
     groq: ["GROQ_API_KEY"],
-    together: ["TOGETHER_API_KEY"],
     replicate: ["REPLICATE_API_TOKEN", "REPLICATE_API_KEY"],
   };
   for (const v of envMap[serviceId] || []) {
@@ -217,13 +213,11 @@ export async function grokChat(prompt: string, system?: string): Promise<string>
   return j.choices?.[0]?.message?.content ?? "";
 }
 
-/* ---------- OpenAI-compatible chat providers (DeepSeek, Mistral, Groq, Together) ---------- */
+/* ---------- OpenAI-compatible chat providers (DeepSeek, Groq) ---------- */
 
 const OAI_COMPAT: Record<string, { base: string; model: string; label: string }> = {
   deepseek: { base: "https://api.deepseek.com/v1", model: "deepseek-chat", label: "DeepSeek" },
-  mistral: { base: "https://api.mistral.ai/v1", model: "mistral-large-latest", label: "Mistral" },
   groq: { base: "https://api.groq.com/openai/v1", model: "llama-3.3-70b-versatile", label: "Groq" },
-  together: { base: "https://api.together.xyz/v1", model: "meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo", label: "Together AI" },
 };
 
 /** Chat via any OpenAI-compatible provider. serviceId must be a key of OAI_COMPAT. */
