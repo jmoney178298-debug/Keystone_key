@@ -26,7 +26,7 @@ CREATE TABLE IF NOT EXISTS user (id text PRIMARY KEY, name text NOT NULL, email 
 CREATE TABLE IF NOT EXISTS session (id text PRIMARY KEY, expiresAt date NOT NULL, token text NOT NULL UNIQUE, createdAt date NOT NULL, updatedAt date NOT NULL, ipAddress text, userAgent text, userId text NOT NULL REFERENCES user(id) ON DELETE CASCADE);
 CREATE TABLE IF NOT EXISTS account (id text PRIMARY KEY, accountId text NOT NULL, providerId text NOT NULL, userId text NOT NULL REFERENCES user(id) ON DELETE CASCADE, accessToken text, refreshToken text, idToken text, accessTokenExpiresAt date, refreshTokenExpiresAt date, scope text, password text, createdAt date NOT NULL, updatedAt date NOT NULL);
 CREATE TABLE IF NOT EXISTS verification (id text PRIMARY KEY, identifier text NOT NULL, value text NOT NULL, expiresAt date NOT NULL, createdAt date, updatedAt date);
-CREATE TABLE IF NOT EXISTS subscriptions (user_id text PRIMARY KEY, stripe_customer_id text NOT NULL, stripe_subscription_id text, plan text NOT NULL DEFAULT 'pro', status text NOT NULL DEFAULT 'incomplete', current_period_end integer, updated_at integer NOT NULL);
+CREATE TABLE IF NOT EXISTS subscriptions (user_id text PRIMARY KEY, stripe_customer_id text NOT NULL, stripe_subscription_id text, plan text NOT NULL DEFAULT 'pro', status text NOT NULL DEFAULT 'incomplete', current_period_end integer, total_paid_cents integer NOT NULL DEFAULT 0, updated_at integer NOT NULL);
 CREATE TABLE IF NOT EXISTS stripe_events (id text PRIMARY KEY, created_at integer NOT NULL);
 CREATE TABLE IF NOT EXISTS prospects (id integer PRIMARY KEY AUTOINCREMENT, user_id text NOT NULL, business_name text NOT NULL, contact_name text, email text, phone text, website text, industry text, city text, stage text NOT NULL DEFAULT 'new', deal_value integer, notes text, created_at integer NOT NULL, updated_at integer NOT NULL);
 CREATE TABLE IF NOT EXISTS ai_usage (user_id text NOT NULL, day text NOT NULL, n integer NOT NULL DEFAULT 0, PRIMARY KEY (user_id, day));
@@ -60,6 +60,7 @@ const ALTERS = [
   "ALTER TABLE funnels ADD COLUMN views integer NOT NULL DEFAULT 0",
   "ALTER TABLE affiliates ADD COLUMN phone text",
   "ALTER TABLE affiliates ADD COLUMN address text",
+  "ALTER TABLE subscriptions ADD COLUMN total_paid_cents integer NOT NULL DEFAULT 0",
 ];
 
 async function initDb(): Promise<void> {

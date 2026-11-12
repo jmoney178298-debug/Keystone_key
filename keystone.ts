@@ -997,6 +997,14 @@ keystone.post("/api/stripe/webhook", async (c) => {
           }
         }
       } catch { /* commission bookkeeping must never fail the webhook */ }
+      // Track real money collected per subscriber (Admin revenue view).
+      // Never fail the webhook if this bookkeeping errors.
+      try {
+        const [row] = await db.select({ totalPaidCents: subscriptions.totalPaidCents }).from(subscriptions).where(eq(subscriptions.stripeSubscriptionId, subId));
+        if (row) {
+          await db.update(subscriptions).set({ totalPaidCents: (row.totalPaidCents ?? 0) + amountCents }).where(eq(subscriptions.stripeSubscriptionId, subId));
+        }
+      } catch {}
     }
   }
   return c.json({ received: true });
@@ -1780,7 +1788,16 @@ admin.get("/overview", async (c) => {
   const subs = await db.select({ status: subscriptions.status, n: sql<number>`count(*)` }).from(subscriptions).groupBy(subscriptions.status);
   const [inbound] = await db.select({ n: sql<number>`count(*)` }).from(leads).where(eq(leads.status, "new"));
   const [won] = await db.select({ total: sql<number>`coalesce(sum(${prospects.dealValue}),0)` }).from(prospects).where(eq(prospects.stage, "won"));
-  return c.json({ subscribers: subs, newInboundLeads: inbound.n, wonRevenue: won.total });
+  // Real money in: subscription payments collected + one-time $5 setup fees.
+  const [subTotal] = await db.select({ total: sql<number>`coalesce(sum(${subscriptions.totalPaidCents}),0)` }).from(subscriptions);
+  const [feeTotal] = await db.select({ total: sql<number>`coalesce(sum(${setupFees.amountCents}),0)` }).from(setupFees);
+  const totalCollectedCents = (subTotal.total || 0) + (feeTotal.total || 0);
+  // MRR: monthly plan price of every active/trialing subscription.
+  // Silver $25 / Gold $50 / Platinum $75 (plan slugs basic/pro/proplus).
+  const PLAN_MONTHLY_CENTS: Record<string, number> = { basic: 2500, pro: 5000, proplus: 7500 };
+  const paying = await db.select({ plan: subscriptions.plan }).from(subscriptions).where(inArray(subscriptions.status, ["active", "trialing"]));
+  const mrrCents = paying.reduce((sum, r) => sum + (PLAN_MONTHLY_CENTS[r.plan] ?? 0), 0);
+  return c.json({ subscribers: subs, newInboundLeads: inbound.n, wonRevenue: won.total, totalCollectedCents, mrrCents });
 });
 
 admin.get("/subscribers", async (c) => c.json(await db.select({
@@ -1788,6 +1805,7 @@ admin.get("/subscribers", async (c) => c.json(await db.select({
   plan: subscriptions.plan,
   status: subscriptions.status,
   stripeCustomerId: subscriptions.stripeCustomerId,
+  totalPaidCents: subscriptions.totalPaidCents,
   updatedAt: subscriptions.updatedAt,
   email: sql<string>`(select email from user where user.id = ${subscriptions.userId})`,
 }).from(subscriptions).orderBy(desc(subscriptions.updatedAt))));
@@ -1840,6 +1858,11 @@ admin.post("/subscribers/:userId/refund", async (c) => {
   const last = pis.data.find((p) => p.status === "succeeded");
   if (!last) return c.json({ error: "No successful payment found to refund." }, 404);
   const refund = await stripe.refunds.create({ payment_intent: last.id });
+  // Keep the collected total honest: a refunded payment is money out.
+  try {
+    const cur = s.totalPaidCents ?? 0;
+    await db.update(subscriptions).set({ totalPaidCents: Math.max(0, cur - last.amount) }).where(eq(subscriptions.userId, userId));
+  } catch {}
   return c.json({ ok: true, refundId: refund.id, amount: last.amount, currency: last.currency });
 });
 /** Owner: charge a subscriber's card on file (off-session). Body: { amountCents, description? } */

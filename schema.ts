@@ -57,6 +57,10 @@ export const subscriptions = sqliteTable("subscriptions", {
   plan: text("plan").notNull().default("pro"),
   status: text("status").notNull().default("incomplete"),
   currentPeriodEnd: integer("current_period_end", { mode: "timestamp" }),
+  // Lifetime total actually collected from this subscriber's invoices
+  // (incremented on invoice.paid, decremented on refund). This is real
+  // money in, not the plan price — a canceled sub with failed payments is $0.
+  totalPaidCents: integer("total_paid_cents").notNull().default(0),
   updatedAt: updatedAt(),
 });
 
