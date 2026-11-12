@@ -9,7 +9,7 @@ import { getCookie, setCookie } from "hono/cookie";
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import Stripe from "stripe";
 import crypto from "node:crypto";
-import { db } from "./db";
+import { db, client } from "./db";
 import { auth, enabledSocialProviders } from "./auth";
 import { affiliates, aiSubscriptions, aiUsage, assistantConversations, assistantMessages, blgPosts, contentJobs, funnels, funnelLeads, ideas, integrationKeys, leads, lifetimeAccess, limitHits, mediaJobs, partnerAccess, prospects, referrals, setupFees, stripeEvents, subscriptions, trialIps, user, userSettings, videoJobs } from "./schema";
 import { blgConfigured, blgGetArticle, blgListArticles, blgSyncArticles, blgUpsertArticle } from "./blg";
@@ -141,8 +141,10 @@ async function affiliateRateFor(aff: typeof affiliates.$inferSelect): Promise<nu
   // The owner always earns the top rate on their own affiliate account.
   if (OWNER_EMAIL) {
     try {
-      const rows = await db.execute(sql`select email from user where id = ${aff.userId}`);
-      const email = (rows as any[])[0]?.email;
+      // NOTE: drizzle's db has no .execute() on the libSQL driver (it is
+      // undefined at runtime) — raw SQL goes through the libSQL client.
+      const result = await client.execute("select email from user where id = ?", [aff.userId]);
+      const email = (result.rows[0] as any)?.email;
       if (email && String(email).toLowerCase() === OWNER_EMAIL) return 0.50;
     } catch {}
   }
@@ -175,8 +177,10 @@ function houseFlatFor(kindKey: string, amountCents: number): number {
 async function houseAffiliate(): Promise<typeof affiliates.$inferSelect | null> {
   if (!OWNER_EMAIL) return null;
   try {
-    const rows = await db.execute(sql`select id from user where lower(email) = ${OWNER_EMAIL} limit 1`);
-    const ownerId = (rows as any[])[0]?.id;
+    // NOTE: drizzle's db has no .execute() on the libSQL driver — raw SQL
+    // goes through the libSQL client.
+    const result = await client.execute("select id from user where lower(email) = ? limit 1", [OWNER_EMAIL]);
+    const ownerId = (result.rows[0] as any)?.id;
     if (!ownerId) return null;
     const [existing] = await db.select().from(affiliates).where(eq(affiliates.userId, ownerId));
     if (existing) return existing;
@@ -1881,7 +1885,10 @@ admin.get("/limit-hits", async (c) =>
 
 /** Admin: login/IP worksheet — every session with user, IP, device, plan, and trial status. */
 admin.get("/sessions", async (c) => {
-  const result = await db.execute(sql`
+  // NOTE: drizzle's db has no .execute() on the libSQL driver (it is
+  // undefined at runtime and throws "db.execute is not a function") — raw
+  // SQL goes through the libSQL client.
+  const result = await client.execute(`
     SELECT s.id, s.ipAddress, s.userAgent, s.createdAt, s.expiresAt,
            u.email, u.name,
            sub.plan, sub.status as subStatus,
