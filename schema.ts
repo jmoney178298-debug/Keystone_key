@@ -241,7 +241,7 @@ export const trialIps = sqliteTable("trial_ips", {
   createdAt: createdAt(),
 });
 
-/** One-time $5 setup fee payments (monthly signups only, once per account). */
+/** One-time $1.99 setup fee payments (monthly signups only, once per account). */
 export const setupFees = sqliteTable("setup_fees", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   userId: text("user_id").notNull().unique(),

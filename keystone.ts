@@ -233,7 +233,7 @@ keystone.post("/api/billing/checkout", requireUser, async (c) => {
   const { plan } = await c.req.json().catch(() => ({ plan: "pro" }));
   const price = PRICES[plan as string];
   if (!price) return c.json({ error: "Unknown plan. Use basic, pro or proplus." }, 400);
-  // $5 setup fee (when configured): monthly checkout requires a recorded fee payment.
+  // $1.99 setup fee (when configured): monthly checkout requires a recorded fee payment.
   if (process.env.STRIPE_PRICE_SETUP_FEE && !c.get("isAdmin") && !(await hasSetupFee(user.id))) {
     return c.json({ error: "A one-time setup fee is required before starting a trial.", code: "setup_fee_required" }, 402);
   }
@@ -262,7 +262,7 @@ keystone.post("/api/billing/checkout", requireUser, async (c) => {
   } catch (e: any) { return c.json({ error: e?.error || "Checkout failed." }, e?.status ?? 500); }
 });
 
-/** One-time $5 setup fee. Needs STRIPE_PRICE_SETUP_FEE in env. Charged once per account. */
+/** One-time $1.99 setup fee. Needs STRIPE_PRICE_SETUP_FEE in env. Charged once per account. */
 keystone.post("/api/billing/setup-fee", requireUser, async (c) => {
   try {
   const price = process.env.STRIPE_PRICE_SETUP_FEE;
@@ -926,7 +926,7 @@ keystone.post("/api/stripe/webhook", async (c) => {
     const sub = event.data.object as Stripe.Subscription;
     await syncSubscription(sub);
     // Trial started: record the trial marker (kind "trial") so the first real charge
-    // can pay the conversion commission. No bounty — the $5 setup fee replaced it.
+    // can pay the conversion commission. No bounty — the $1.99 setup fee replaced it.
     if (event.type === "customer.subscription.created" && sub.status === "trialing") {
       const trialBuyerId = (sub.metadata as any)?.userId as string | undefined;
       const house = await houseAffiliate();
@@ -1788,7 +1788,7 @@ admin.get("/overview", async (c) => {
   const subs = await db.select({ status: subscriptions.status, n: sql<number>`count(*)` }).from(subscriptions).groupBy(subscriptions.status);
   const [inbound] = await db.select({ n: sql<number>`count(*)` }).from(leads).where(eq(leads.status, "new"));
   const [won] = await db.select({ total: sql<number>`coalesce(sum(${prospects.dealValue}),0)` }).from(prospects).where(eq(prospects.stage, "won"));
-  // Real money in: subscription payments collected + one-time $5 setup fees.
+  // Real money in: subscription payments collected + one-time $1.99 setup fees.
   const [subTotal] = await db.select({ total: sql<number>`coalesce(sum(${subscriptions.totalPaidCents}),0)` }).from(subscriptions);
   const [feeTotal] = await db.select({ total: sql<number>`coalesce(sum(${setupFees.amountCents}),0)` }).from(setupFees);
   const totalCollectedCents = (subTotal.total || 0) + (feeTotal.total || 0);
