@@ -644,12 +644,13 @@ function render(){
 (async function(){
   const b=await api('/api/billing/status');
   if(b.ok&&b.data){isAdmin=!!b.data.isAdmin;planLabel=b.data.status;signedIn=true}
+  if(b.ok&&b.data&&!b.data.active&&!b.data.isAdmin)view='bill';
   const lim=await api('/api/assistant/limits'); if(lim.ok)limits=lim.data;
   await loadAssistantName();
   render(); loadConvos(); restoreChatState();
   setTimeout(maybeRitual,900);
   const q=new URLSearchParams(location.search).get('billing');
-  if(q=='success'||q=='cancelled'){setTimeout(()=>toast(q=='success'?'Payment successful — welcome!':'Checkout was cancelled. No charge was made.'),600);history.replaceState(null,'',location.pathname)}
+  if(q=='success'||q=='cancelled'||q=='setup_fee_paid'){setTimeout(()=>toast(q=='success'?'Payment successful — welcome!':q=='setup_fee_paid'?'Setup fee paid — pick your plan to start your trial.':'Checkout was cancelled. No charge was made.'),600);history.replaceState(null,'',location.pathname)}
 })();
 
 /* ---------- Assistant naming + presence ---------- */

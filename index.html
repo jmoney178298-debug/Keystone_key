@@ -403,7 +403,7 @@ loadSocialButtons();
 function want(p){try{if(p)sessionStorage.setItem('want',p);return sessionStorage.getItem('want')}catch(e){return p}}
 function perr(m){$('#perr').textContent=m||''}
 async function pick(p){want(p);const s=await api('/api/billing/status');if(s.ok)return checkout(p);location.hash='login';show('login')}
-async function checkout(p){perr('');const r=await api('/api/billing/checkout',{plan:p});if(r.ok&&r.data.url){try{sessionStorage.removeItem('want')}catch(e){}location.href=r.data.url}else if(r.data.code==='setup_fee_required'){location.href='/app/billing'}else{location.hash='account';show('account')}}
+async function checkout(p){perr('');const r=await api('/api/billing/checkout',{plan:p});if(r.ok&&r.data.url){try{sessionStorage.removeItem('want')}catch(e){}location.href=r.data.url}else if(r.data.code==='setup_fee_required'){location.href='/app/billing'}else{perr(r.data.error||'Checkout failed. Please try again.')}}
 async function buyLifetime(){perr('');const s=await api('/api/billing/status');if(!s.ok){want('lifetime');location.hash='login';show('login');return}const r=await api('/api/billing/lifetime',{});if(r.ok&&r.data.url){try{sessionStorage.removeItem('want')}catch(e){}location.href=r.data.url}else perr(r.data.error||'Lifetime checkout is not available yet.')}
 async function buyPartner(){perr('');const s=await api('/api/billing/status');if(!s.ok){want('partner');location.hash='login';show('login');return}const r=await api('/api/billing/partner',{});if(r.ok&&r.data.url){try{sessionStorage.removeItem('want')}catch(e){}location.href=r.data.url}else perr(r.data.error||'Partner checkout is not available yet.')}
 async function go(){$('#msg').textContent='';const email=$('#e').value.trim(),password=$('#p').value;

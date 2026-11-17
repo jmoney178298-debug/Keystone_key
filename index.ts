@@ -5,7 +5,7 @@ import fs from "node:fs";
 import { auth } from "./auth";
 import { db, dbReady } from "./db";
 import { keystone } from "./keystone";
-import { lifetimeAccess, partnerAccess, subscriptions } from "./schema";
+import { lifetimeAccess, partnerAccess, setupFees, subscriptions } from "./schema";
 
 const OWNER = (process.env.OWNER_EMAIL ?? "").trim().toLowerCase();
 const app = new Hono();
@@ -29,7 +29,19 @@ app.get("/app", async (c) => {  const session = await auth.api.getSession({ head
     const [life] = await db.select().from(lifetimeAccess).where(eq(lifetimeAccess.userId, session.user.id));
     if (!part && !life) {
       const [s] = await db.select().from(subscriptions).where(eq(subscriptions.userId, session.user.id));
-      if (!s || !["active", "trialing"].includes(s.status)) return c.redirect("/#account");
+      if (!s || !["active", "trialing"].includes(s.status)) {
+        // New signups must reach Billing to pay the one-time setup fee before a
+        // trial can start. Let fee-owers into the app; the billing view collects
+        // the fee and the API still enforces an active subscription.
+        if (process.env.STRIPE_PRICE_SETUP_FEE) {
+          const [fee] = await db.select().from(setupFees).where(eq(setupFees.userId, session.user.id));
+          if (!fee) {
+            c.header("Cache-Control", "no-store");
+            return c.html(fs.readFileSync("app.html", "utf8"));
+          }
+        }
+        return c.redirect("/#account");
+      }
     }
   }
   c.header("Cache-Control", "no-store");
