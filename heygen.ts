@@ -122,20 +122,29 @@ export interface GenerateVideoOpts {
  * If avatarId/voiceId are omitted, the first available English avatar/voice
  * is used; if no voice is resolved, HeyGen falls back to the avatar's
  * default voice (v3 behavior).
+ *
+ * 2026-11-22: stock avatar IDs returned by /v3/avatars are rejected by
+ * HeyGen on this account ("Avatar not found" — e.g. Clement, Fares),
+ * while the owner's custom avatar renders fine. So the default now
+ * prefers a custom avatar (name contains "Javier"), and if a chosen
+ * avatar fails with "Avatar not found" we retry once with the custom one.
  */
 export async function heygenGenerateVideo(opts: GenerateVideoOpts): Promise<{ video_id: string }> {
   const format: VideoFormat = opts.format ?? "landscape";
   let { avatarId, voiceId } = opts;
+  let avatars: any[] = [];
   if (!avatarId || !voiceId) {
-    const [avatars, voices] = await Promise.all([heygenListAvatars(), heygenListVoices()]);
+    const [a, v] = await Promise.all([heygenListAvatars(), heygenListVoices()]);
+    avatars = a;
     if (!avatarId) {
-      const a = avatars.find((x: any) => /en/i.test(x.language ?? "") || !x.language) ?? avatars[0];
-      if (!a) throw new Error("No HeyGen avatars available on this account.");
-      avatarId = a.avatar_id;
+      const custom = avatars.find((x: any) => /javier/i.test(x.avatar_name ?? ""));
+      const a2 = custom ?? avatars.find((x: any) => /en/i.test(x.language ?? "") || !x.language) ?? avatars[0];
+      if (!a2) throw new Error("No HeyGen avatars available on this account.");
+      avatarId = a2.avatar_id;
     }
     if (!voiceId) {
-      const v = voices.find((x: any) => /^(en|english)/i.test(x.language ?? "") || /en[-_]/i.test(x.voice_id ?? "")) ?? voices[0];
-      if (v) voiceId = v.voice_id;
+      const vv = v.find((x: any) => /^(en|english)/i.test(x.language ?? "") || /en[-_]/i.test(x.voice_id ?? "")) ?? v[0];
+      if (vv) voiceId = vv.voice_id;
     }
   }
   const body: Record<string, any> = {
@@ -147,7 +156,19 @@ export async function heygenGenerateVideo(opts: GenerateVideoOpts): Promise<{ vi
     resolution: "720p",
   };
   if (voiceId) body.voice_id = voiceId;
-  const j = await heygenFetch("/v3/videos", { method: "POST", body: JSON.stringify(body) });
+  let j: any;
+  try {
+    j = await heygenFetch("/v3/videos", { method: "POST", body: JSON.stringify(body) });
+  } catch (e: any) {
+    // Stock avatar rejected ("Avatar not found") — retry once with the
+    // owner's custom avatar, which HeyGen accepts on this account.
+    if (!/avatar not found/i.test(e?.message ?? "")) throw e;
+    if (!avatars.length) avatars = await heygenListAvatars();
+    const custom = avatars.find((x: any) => /javier/i.test(x.avatar_name ?? ""));
+    if (!custom || custom.avatar_id === avatarId) throw e;
+    body.avatar_id = custom.avatar_id;
+    j = await heygenFetch("/v3/videos", { method: "POST", body: JSON.stringify(body) });
+  }
   const videoId = j?.data?.id ?? j?.data?.video_id;
   if (!videoId) throw new Error(`HeyGen did not return a video id: ${JSON.stringify(j).slice(0, 200)}`);
   return { video_id: videoId };
