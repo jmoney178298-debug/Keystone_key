@@ -204,7 +204,7 @@ export async function grokChat(prompt: string, system?: string): Promise<string>
     method: "POST",
     headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
     body: JSON.stringify({
-      model: "grok-3-mini",
+      model: "grok-4.7",
       messages: [...(system ? [{ role: "system", content: system }] : []), { role: "user", content: prompt }],
     }),
   });

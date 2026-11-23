@@ -79,7 +79,7 @@ ${trimmed}`;
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      model: process.env.AI_MODEL || "claude-sonnet-4-5",
+      model: process.env.AI_MODEL || "claude-sonnet-5-5",
       max_tokens: 4000,
       messages: [{ role: "user", content: prompt }],
     }),
